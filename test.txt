@@ -1,0 +1,10 @@
+This change introduces a new plugin and node system to the D-Net platform.
+
+The new system includes:
+- A `Plugin` model to store information about external programs.
+- A `Workflow` model to represent a chain of nodes.
+- A `Node` model to represent a single step in a workflow.
+- An admin interface to manage plugins, workflows, and nodes.
+- An API endpoint to execute workflows.
+- Integration with the existing `Persona` and `Agent` models.
+- A test page to manually test the new system.
