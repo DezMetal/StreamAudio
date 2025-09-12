@@ -148,7 +148,7 @@ class Voice:
                 return match.group(1), text.replace(match.group(0), '').strip()
             return None, text
 
-        save_path_flag, text = extract_tag(r'\[save="([^"]+)"\]', text)
+        save_path_flag, text = extract_tag(r'\[save=["\']([^"\']+)["\']\]', text)
         if re.search(r'\[bytes\]', text, re.IGNORECASE):
             return_bytes_flag, speak_flag = True, False
             text = re.sub(r'\[bytes\]', '', text, flags=re.IGNORECASE).strip()
@@ -156,7 +156,7 @@ class Voice:
             speak_flag = False
             text = re.sub(r'\[speak=(false|off)\]', '', text, flags=re.IGNORECASE).strip()
         
-        file_path, text = extract_tag(r'\[file="([^"]+)"\]', text)
+        file_path, text = extract_tag(r'\[file=["\']([^"\']+)["\']\]', text)
         if file_path:
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
