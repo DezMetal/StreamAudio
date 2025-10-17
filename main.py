@@ -97,7 +97,7 @@ class DynamicsGenerator:
                     self.noise_pos += self.settings['noise_step']
                     pitch_val = self._map_noise_to_range(self.pitch_noise(self.noise_pos), self.settings['pitch_range'], self.settings['pitch_deviation'])
                     scale_val = self._map_noise_to_range(self.scale_noise(self.noise_pos), self.settings['scale_range'], self.settings['scale_deviation'])
-                    temp_sentence = f"[scale={scale_val:.2f}][pitch={pitch_val:.2f}]{sentence}[scale=1][pitch=0]"
+                    temp_sentence = f"[scale={scale_val:.2f}][pitch={pitch_val:.2f}]{sentence}"
                     temp_sentence = temp_sentence.replace(',', f', [pause={randint(*self.settings["pause_comma_range"])}]')
                     if temp_sentence.endswith('.') or temp_sentence.endswith(':'): temp_sentence = temp_sentence[:-1] + f'. [pause={randint(*self.settings["pause_period_range"])}]'
                     elif temp_sentence.endswith('?'): temp_sentence = temp_sentence[:-1] + f'? [pause={randint(*self.settings["pause_period_range"])}]'
@@ -105,7 +105,7 @@ class DynamicsGenerator:
                     processed_text += temp_sentence + " "
             else:
                 processed_text += part
-        return processed_text.strip()
+        return f"{processed_text.strip()} [scale=1][pitch=0]"
 
 class Voice:
     def __init__(self, settings_path="settings.json", headless=False):
@@ -170,7 +170,6 @@ class Voice:
                     text = f.read() + " " + text
             except Exception as e:
                 self.console.print(f"[bold red]Error reading file {file_path}: {e}[/bold red]")
-                return
 
         processed_text = self.dynamics_generator.process(text)
         if not self.headless:

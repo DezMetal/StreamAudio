@@ -1,43 +1,25 @@
-import pyaudio
-import wave
-import io
+import os
+from main import Voice
 
-from stream_audio import Voice
-
-# Assume 'audio_bytes' contains your WAV audio data
-# For example, loading from a file:
-#with open("bytes.txt", "rb") as b:
-#    audio_bytes = b.read()
+# Create a dummy test file
+with open("test_file.txt", "w") as f:
+    f.write("This is a test file.")
 
 V = Voice(headless=True)
 
-audio_bytes = V.say("this is another test. hello [bytes]", False)
+# Test case 1: File not found
+# Verify that audio is still generated for the fallback text.
+audio_bytes_not_found = V.say('[file="nonexistent.txt"] Fallback text. [bytes]', speak_override=False)
+assert audio_bytes_not_found is not None
+assert len(audio_bytes_not_found) > 0
 
-# Wrap bytes in BytesIO
-audio_buffer = io.BytesIO(audio_bytes)
+# Test case 2: File found
+# Verify that including a file results in a different (longer) audio output.
+audio_bytes_found = V.say('[file="test_file.txt"] Fallback text. [bytes]', speak_override=False)
+assert audio_bytes_found is not None
+assert len(audio_bytes_found) > len(audio_bytes_not_found)
 
-# Open the WAV file from the buffer
-wf = wave.open(audio_buffer, 'rb')
+print("All tests passed!")
 
-# Initialize PyAudio
-p = pyaudio.PyAudio()
-
-# Open stream
-stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
-                channels=wf.getnchannels(),
-                rate=wf.getframerate(),
-                output=True)
-
-# Read data in chunks and play
-CHUNK = 1024
-data = wf.readframes(CHUNK)
-while data:
-    stream.write(data)
-    data = wf.readframes(CHUNK)
-
-# Stop and close the stream
-stream.stop_stream()
-stream.close()
-
-# Terminate PyAudio
-p.terminate()
+# Clean up the dummy file
+os.remove("test_file.txt")
