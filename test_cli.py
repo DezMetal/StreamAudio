@@ -1,43 +1,39 @@
-import pyaudio
-import wave
-import io
+import os
+from main import Voice
 
-from stream_audio import Voice
-
-# Assume 'audio_bytes' contains your WAV audio data
-# For example, loading from a file:
-#with open("bytes.txt", "rb") as b:
-#    audio_bytes = b.read()
+# Create dummy test files
+with open("test_file_A.txt", "w") as f:
+    f.write("This is the content of file A.")
+with open("test_file_B.txt", "w") as f:
+    f.write("This is the content of file B.")
 
 V = Voice(headless=True)
 
-audio_bytes = V.say("this is another test. hello [bytes]", False)
+# Test Case 1: File Not Found
+# Synthesize text where the file tag is invalid.
+# The program should recover and synthesize the surrounding text.
+V.reset_dynamics()
+audio_bytes_not_found = V.say('Before. [file="nonexistent.txt"] After. [bytes]', speak_override=False)
+assert audio_bytes_not_found is not None and len(audio_bytes_not_found) > 0
 
-# Wrap bytes in BytesIO
-audio_buffer = io.BytesIO(audio_bytes)
+# Test Case 2: Single File Found
+# Synthesize text with a valid file tag.
+# The resulting audio should be longer than the audio from the not-found case.
+V.reset_dynamics()
+audio_bytes_single_found = V.say('Before. [file="test_file_A.txt"] After. [bytes]', speak_override=False)
+assert audio_bytes_single_found is not None
+assert len(audio_bytes_single_found) > len(audio_bytes_not_found)
 
-# Open the WAV file from the buffer
-wf = wave.open(audio_buffer, 'rb')
+# Test Case 3: Multiple Files Found
+# Synthesize text with two valid file tags.
+# The resulting audio should be longer than the audio with just one file.
+V.reset_dynamics()
+audio_bytes_multiple_found = V.say('File A is [file="test_file_A.txt"] and File B is [file="test_file_B.txt"]. [bytes]', speak_override=False)
+assert audio_bytes_multiple_found is not None
+assert len(audio_bytes_multiple_found) > len(audio_bytes_single_found)
 
-# Initialize PyAudio
-p = pyaudio.PyAudio()
+print("All tests passed!")
 
-# Open stream
-stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
-                channels=wf.getnchannels(),
-                rate=wf.getframerate(),
-                output=True)
-
-# Read data in chunks and play
-CHUNK = 1024
-data = wf.readframes(CHUNK)
-while data:
-    stream.write(data)
-    data = wf.readframes(CHUNK)
-
-# Stop and close the stream
-stream.stop_stream()
-stream.close()
-
-# Terminate PyAudio
-p.terminate()
+# Clean up the dummy files
+os.remove("test_file_A.txt")
+os.remove("test_file_B.txt")

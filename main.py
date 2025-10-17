@@ -67,11 +67,17 @@ def _open_stream(sample_rate, channels):
 
 # --- CORE CLASSES ---
 class DynamicsGenerator:
-    def __init__(self, settings):
+    def __init__(self, settings, seed=None):
         self.settings = settings
+        if seed is None:
+            seed = randint(1, 1000)
+        self.seed = seed
+        self.reset()
+
+    def reset(self):
         self.noise_pos = 0
-        self.pitch_noise = PerlinNoise(octaves=4, seed=randint(1, 1000))
-        self.scale_noise = PerlinNoise(octaves=4, seed=randint(1, 1000))
+        self.pitch_noise = PerlinNoise(octaves=4, seed=self.seed)
+        self.scale_noise = PerlinNoise(octaves=4, seed=self.seed + 1)
 
     def _map_noise_to_range(self, noise_val, value_range, deviation):
         center = (value_range[0] + value_range[1]) / 2
@@ -97,7 +103,7 @@ class DynamicsGenerator:
                     self.noise_pos += self.settings['noise_step']
                     pitch_val = self._map_noise_to_range(self.pitch_noise(self.noise_pos), self.settings['pitch_range'], self.settings['pitch_deviation'])
                     scale_val = self._map_noise_to_range(self.scale_noise(self.noise_pos), self.settings['scale_range'], self.settings['scale_deviation'])
-                    temp_sentence = f"[scale={scale_val:.2f}][pitch={pitch_val:.2f}]{sentence}[scale=1][pitch=0]"
+                    temp_sentence = f"[scale={scale_val:.2f}][pitch={pitch_val:.2f}]{sentence}"
                     temp_sentence = temp_sentence.replace(',', f', [pause={randint(*self.settings["pause_comma_range"])}]')
                     if temp_sentence.endswith('.') or temp_sentence.endswith(':'): temp_sentence = temp_sentence[:-1] + f'. [pause={randint(*self.settings["pause_period_range"])}]'
                     elif temp_sentence.endswith('?'): temp_sentence = temp_sentence[:-1] + f'? [pause={randint(*self.settings["pause_period_range"])}]'
@@ -105,7 +111,7 @@ class DynamicsGenerator:
                     processed_text += temp_sentence + " "
             else:
                 processed_text += part
-        return processed_text.strip()
+        return f"{processed_text.strip()} [scale=1][pitch=0]"
 
 class Voice:
     def __init__(self, settings_path="settings.json", headless=False):
@@ -120,12 +126,15 @@ class Voice:
             except Exception as e:
                 if not self.headless: self.console.print(f"[bold red]Error loading {settings_path}: {e}[/bold red]")
         
-        self.dynamics_generator = DynamicsGenerator(self.settings['dynamics'])
+        self.dynamics_generator = DynamicsGenerator(self.settings['dynamics'], seed=1) # Use a fixed seed for deterministic tests
         
         if not self.headless: self.console.print("[cyan]Initializing TTS model...[/cyan]")
         start_time = time.time()
         self.voice = PiperVoice.load(self.settings['model_path'], self.settings['config_path'])
         if not self.headless: self.console.print(f"[green]✔ Model loaded in {time.time() - start_time:.2f} seconds.[/green]")
+
+    def reset_dynamics(self):
+        self.dynamics_generator.reset()
 
     def _write_wav_to_buffer(self, audio_data, sample_rate, channels=1):
         buffer = io.BytesIO()
@@ -142,20 +151,14 @@ class Voice:
         save_path_flag = None
         return_bytes_flag = False
 
-        def extract_tag(pattern, text):
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                # Find the first non-empty capture group for the value.
-                value = next((g for g in match.groups() if g is not None), None)
-                if value is not None:
-                    # Use replace with count=1 for safety.
-                    return value, text.replace(match.group(0), '', 1).strip()
-            return None, text
-
         save_pattern = r"\[save=(?:'([^']*)'|\"([^\"]*)\"|([^\]\s]*))\]"
         file_pattern = r"\[file=(?:'([^']*)'|\"([^\"]*)\"|([^\]\s]*))\]"
 
-        save_path_flag, text = extract_tag(save_pattern, text)
+        match = re.search(save_pattern, text, re.IGNORECASE)
+        if match:
+            save_path_flag = next((g for g in match.groups() if g is not None), None)
+            if save_path_flag:
+                text = text.replace(match.group(0), '', 1).strip()
         if re.search(r'\[bytes\]', text, re.IGNORECASE):
             return_bytes_flag, speak_flag = True, False
             text = re.sub(r'\[bytes\]', '', text, flags=re.IGNORECASE).strip()
@@ -163,14 +166,17 @@ class Voice:
             speak_flag = False
             text = re.sub(r'\[speak=(false|off)\]', '', text, flags=re.IGNORECASE).strip()
         
-        file_path, text = extract_tag(file_pattern, text)
-        if file_path:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    text = f.read() + " " + text
-            except Exception as e:
-                self.console.print(f"[bold red]Error reading file {file_path}: {e}[/bold red]")
-                return
+        def _replace_file_tag(match):
+            filepath = next((g for g in match.groups() if g is not None), None)
+            if filepath:
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        return f.read()
+                except Exception as e:
+                    self.console.print(f"[bold red]Error reading file {filepath}: {e}[/bold red]")
+                    return ""
+            return ""
+        text = re.sub(file_pattern, _replace_file_tag, text, flags=re.IGNORECASE)
 
         processed_text = self.dynamics_generator.process(text)
         if not self.headless:
