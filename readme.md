@@ -24,7 +24,7 @@ The script can be run as a standalone, feature-rich command-line application or 
 
 ## Installation
 
-1.  **Clone the repository or download the `stream_audio.py` script.**
+1.  **Clone the repository or download the `main.py` script.**
 
 2.  **Install the required Python packages:**
     ```bash
@@ -40,27 +40,30 @@ The script can be run as a standalone, feature-rich command-line application or 
 
 ### As a Standalone CLI
 
-Simply run the script from your terminal.
+Simply run the script from your terminal with the text you want to speak.
 
 ```bash
-python stream_audio.py
+python main.py "Hello, world!"
 ```
 
-You will be greeted by a welcome message and a `>>>` prompt. Type any text and press Enter to hear it spoken. You can use any of the supported tags in your input.
+The script runs as a background service. You can use the following commands to manage it:
+- `python main.py "Text to speak"`: Speaks the given text.
+- `python main.py --status`: Checks if the service is running.
+- `python main.py --clear`: Stops the background service.
 
 ### As a Python Module
 
 Import the `Voice` class into your own Python scripts to add text-to-speech functionality.
 
 ```python
-import stream_audio
+from main import Voice
 import pyaudio
 import wave
 import io
 
 # Initialize the voice. It can be headless to suppress console output.
 # You can also point to a custom settings file.
-my_voice = stream_audio.Voice(settings_path="custom_settings.json", headless=True)
+my_voice = Voice(settings_path="custom_settings.json", headless=True)
 
 # 1. Simple speech
 my_voice.say("Hello from my application!")
