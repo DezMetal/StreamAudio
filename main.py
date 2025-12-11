@@ -26,12 +26,26 @@ import threading
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
+# --- HELPER FUNCTIONS ---
+def _update_settings(original, update):
+    for key, value in update.items():
+        if isinstance(value, dict) and key in original:
+            original[key] = _update_settings(original.get(key, {}), value)
+        else:
+            original[key] = value
+    return original
+
 # --- SETTINGS ---
 DEFAULT_SETTINGS = {
     "model_path": os.path.join(script_dir, "models/femV1/en_US-hfc_female-medium.onnx"),
     "config_path": os.path.join(script_dir, "models/femV1/en_US-hfc_female-medium.onnx.json"),
     "start_phrases": ["initializing", "starting program", "hello", "ready", "initialize"],
     "stop_phrases": ["terminating", "ending program", "goodbye", "terminated", "shutting down"],
+    "piper": {
+        "speed": 1.0,
+        "noise_scale": 0.67,
+        "noise_w": 0.8
+    },
     "dynamics": {
         "pause_comma_range": [50, 80],
         "pause_period_range": [110, 350],
@@ -42,10 +56,10 @@ DEFAULT_SETTINGS = {
         "scale_deviation": 0.075
     },
     "rvc": {
-        "enabled": False,           # Toggle switch for RVC voice conversion
-        "model_path": None,         # Path to .pth model (e.g., "models/miku/weights/miku_default_rvc.pth")
+        "enabled": True,            # RVC enabled by default
+        "model_path": "models/miku/miku_default_rvc.onnx",  # Default to included model
         "index_path": None,         # Optional path to .index file for better quality
-        "pitch_shift": 0,           # Pitch adjustment in semitones
+        "pitch_shift": 1,           # Slight pitch adjustment
         "pitch_method": "rmvpe",    # Pitch extraction: rmvpe (best quality, slow), pm (fastest), harvest (balanced)
         "index_rate": 0.5,          # Feature search ratio (0.0-1.0)
         "protect": 0.5,             # Protection for voiceless consonants (0.0-0.5)
@@ -54,14 +68,16 @@ DEFAULT_SETTINGS = {
     }
 }
 
-# --- HELPER FUNCTIONS ---
-def _update_settings(original, update):
-    for key, value in update.items():
-        if isinstance(value, dict) and key in original:
-            original[key] = _update_settings(original.get(key, {}), value)
-        else:
-            original[key] = value
-    return original
+# Load settings_default.json if it exists (provides better defaults than hardcoded)
+_default_settings_path = os.path.join(script_dir, "settings_default.json")
+if os.path.exists(_default_settings_path):
+    try:
+        with open(_default_settings_path, 'r') as f:
+            DEFAULT_SETTINGS = _update_settings(DEFAULT_SETTINGS, json.load(f))
+    except Exception:
+        pass  # Fall back to hardcoded defaults
+
+
 
 @contextmanager
 def _open_stream(sample_rate, channels, check_interrupted_callback=None):
