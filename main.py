@@ -77,6 +77,21 @@ if os.path.exists(_default_settings_path):
     except Exception:
         pass  # Fall back to hardcoded defaults
 
+# Resolve relative paths to be relative to script_dir (not CWD)
+def _resolve_path(path):
+    """Resolve path relative to StreamAudio directory if not absolute."""
+    if path and not os.path.isabs(path):
+        return os.path.join(script_dir, path)
+    return path
+
+# Fix model paths
+DEFAULT_SETTINGS["model_path"] = _resolve_path(DEFAULT_SETTINGS.get("model_path"))
+DEFAULT_SETTINGS["config_path"] = _resolve_path(DEFAULT_SETTINGS.get("config_path"))
+if "rvc" in DEFAULT_SETTINGS and DEFAULT_SETTINGS["rvc"].get("model_path"):
+    DEFAULT_SETTINGS["rvc"]["model_path"] = _resolve_path(DEFAULT_SETTINGS["rvc"]["model_path"])
+if "rvc" in DEFAULT_SETTINGS and DEFAULT_SETTINGS["rvc"].get("index_path"):
+    DEFAULT_SETTINGS["rvc"]["index_path"] = _resolve_path(DEFAULT_SETTINGS["rvc"]["index_path"])
+
 
 
 @contextmanager
