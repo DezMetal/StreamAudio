@@ -22,13 +22,14 @@ from rich.syntax import Syntax
 from multiprocessing.connection import Listener, Client
 import subprocess
 import atexit
+import threading
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
 # --- SETTINGS ---
 DEFAULT_SETTINGS = {
-    "model_path": os.path.join(script_dir, "models/cori/en_GB-cori-high.onnx"),
-    "config_path": os.path.join(script_dir, "models/cori/en_GB-cori-high.onnx.json"),
+    "model_path": os.path.join(script_dir, "models/femV1/en_US-hfc_female-medium.onnx"),
+    "config_path": os.path.join(script_dir, "models/femV1/en_US-hfc_female-medium.onnx.json"),
     "start_phrases": ["initializing", "starting program", "hello", "ready", "initialize"],
     "stop_phrases": ["terminating", "ending program", "goodbye", "terminated", "shutting down"],
     "dynamics": {
@@ -39,6 +40,17 @@ DEFAULT_SETTINGS = {
         "pitch_deviation": 0.075,
         "scale_range": [0.85, 1.2],
         "scale_deviation": 0.075
+    },
+    "rvc": {
+        "enabled": False,           # Toggle switch for RVC voice conversion
+        "model_path": None,         # Path to .pth model (e.g., "models/miku/weights/miku_default_rvc.pth")
+        "index_path": None,         # Optional path to .index file for better quality
+        "pitch_shift": 0,           # Pitch adjustment in semitones
+        "pitch_method": "rmvpe",    # Pitch extraction: rmvpe (best quality, slow), pm (fastest), harvest (balanced)
+        "index_rate": 0.5,          # Feature search ratio (0.0-1.0)
+        "protect": 0.5,             # Protection for voiceless consonants (0.0-0.5)
+        "device": "cpu",            # Computation device: "cpu" or "cuda:0" (GPU recommended for speed)
+        "fast_mode": True           # Skip dynamics processing for lower latency (recommended when RVC enabled)
     }
 }
 
@@ -52,7 +64,7 @@ def _update_settings(original, update):
     return original
 
 @contextmanager
-def _open_stream(sample_rate, channels):
+def _open_stream(sample_rate, channels, check_interrupted_callback=None):
     try:
         stream = sd.OutputStream(samplerate=sample_rate, channels=channels, dtype='int16')
         stream.start()
@@ -127,14 +139,272 @@ class Voice:
                 if not self.headless: self.console.print(f"[bold red]Error loading {settings_path}: {e}[/bold red]")
         
         self.dynamics_generator = DynamicsGenerator(self.settings['dynamics'], seed=1) # Use a fixed seed for deterministic tests
+        self._interrupted = False
         
         if not self.headless: self.console.print("[cyan]Initializing TTS model...[/cyan]")
         start_time = time.time()
         self.voice = PiperVoice.load(self.settings['model_path'], self.settings['config_path'])
         if not self.headless: self.console.print(f"[green]✔ Model loaded in {time.time() - start_time:.2f} seconds.[/green]")
+        
+        # RVC voice converter - initialized in background to avoid blocking startup
+        self.rvc_converter = None
+        self._rvc_settings = self.settings.get('rvc', {})
+        self._rvc_ready = False
+        self._rvc_init_thread = None
+        self._rvc_ready_callback = None
+        
+        # Start background RVC initialization if enabled
+        if self._rvc_settings.get('enabled') and self._rvc_settings.get('model_path'):
+            if not self.headless: self.console.print("[cyan]RVC voice conversion enabled - loading in background...[/cyan]")
+            self._rvc_init_thread = threading.Thread(target=self._init_rvc_background, daemon=True)
+            self._rvc_init_thread.start()
+    
+    def set_rvc_ready_callback(self, callback):
+        """Set a callback to be called when RVC is ready. Callback receives (success: bool, message: str)."""
+        self._rvc_ready_callback = callback
+        # If already ready, call immediately
+        if self._rvc_ready:
+            callback(self.rvc_converter is not None, "RVC already initialized")
+    
+    def _init_rvc_background(self):
+        """Initialize RVC converter in background thread."""
+        try:
+            from rvc_inference import create_rvc_converter
+            rvc_model = self._rvc_settings['model_path']
+            # Resolve relative paths
+            if not os.path.isabs(rvc_model):
+                rvc_model = os.path.join(script_dir, rvc_model)
+            
+            # Determine if ONNX or PyTorch model
+            is_onnx = rvc_model.lower().endswith('.onnx')
+            
+            rvc_start = time.time()
+            
+            if is_onnx:
+                # ONNX model - use simpler params
+                self.rvc_converter = create_rvc_converter(
+                    model_path=rvc_model,
+                    device=self._rvc_settings.get('device', 'cpu'),
+                    pitch_shift=self._rvc_settings.get('pitch_shift', 0)
+                )
+            else:
+                # PyTorch model - use full params
+                self.rvc_converter = create_rvc_converter(
+                    model_path=rvc_model,
+                    index_path=self._rvc_settings.get('index_path'),
+                    device=self._rvc_settings.get('device', 'cpu'),
+                    pitch_method=self._rvc_settings.get('pitch_method', 'rmvpe'),
+                    pitch_shift=self._rvc_settings.get('pitch_shift', 0),
+                    index_rate=self._rvc_settings.get('index_rate', 0.5),
+                    protect=self._rvc_settings.get('protect', 0.5)
+                )
+            
+            # Pre-warm the pipeline by doing a tiny dummy conversion
+            # This loads hubert and rmvpe models so first real call is fast
+            if not self.headless: self.console.print("[cyan]Warming up RVC pipeline...[/cyan]")
+            try:
+                dummy_audio = np.zeros(16000, dtype=np.int16)  # 1 second of silence at 16kHz
+                self.rvc_converter.convert(dummy_audio, sample_rate=16000)
+            except Exception as warmup_err:
+                if not self.headless: self.console.print(f"[yellow]Warmup skipped: {warmup_err}[/yellow]")
+            
+            load_time = time.time() - rvc_start
+            self._rvc_ready = True
+            if not self.headless: self.console.print(f"[green]✔ RVC converter ready in {load_time:.2f} seconds.[/green]")
+            
+            # Notify via callback
+            if self._rvc_ready_callback:
+                self._rvc_ready_callback(True, f"RVC voice conversion ready ({load_time:.1f}s)")
+        except Exception as e:
+            self._rvc_ready = True  # Mark as "done" even on failure to prevent waiting forever
+            if not self.headless: self.console.print(f"[bold yellow]⚠ RVC initialization failed: {e}[/bold yellow]")
+            self.rvc_converter = None
+            
+            # Notify via callback
+            if self._rvc_ready_callback:
+                self._rvc_ready_callback(False, f"RVC init failed: {e}")
 
     def reset_dynamics(self):
         self.dynamics_generator.reset()
+    
+    def stop(self):
+        """Signals the current speech to stop."""
+        self._interrupted = True
+        # Logic to clear buffer if needed, though the loop break handles most
+    
+    def say_fast(self, text: str) -> None:
+        """
+        Fast-path TTS with RVC. Bypasses dynamics processing for minimal latency.
+        Streams audio in chunks to reduce initial wait time.
+        """
+        self._interrupted = False
+        
+        if not text.strip():
+            return
+        
+        sample_rate = self.voice.config.sample_rate
+        channels = 1
+        
+        if not self.headless: self.console.print(f"[cyan]DEBUG: say_fast called for: '{text[:20]}...'[/cyan]")
+        
+        # Buffer for chunked processing
+        chunk_buffer = []
+        buffer_len = 0
+        max_accumulate_len = int(sample_rate * 1.5)  # Max buffer size before forced flush
+        overlap_len = int(sample_rate * 0.3)         # 0.3 seconds overlap
+        last_context = np.array([], dtype=np.int16)
+        
+        # Open stream once
+        try:
+            stream = _open_stream(sample_rate, channels)
+            if hasattr(stream, '__enter__'):
+                st = stream.__enter__()
+            else:
+                st = stream
+            
+            if st is None:
+                if not self.headless: self.console.print("[bold red]CRITICAL: Stream init FAILED (st is None)[/bold red]")
+                return
+            else:
+                if not self.headless: self.console.print("[green]DEBUG: Stream opened successfully[/green]")
+        except Exception as e:
+            if not self.headless: self.console.print(f"[bold red]CRITICAL: Stream init Exception: {e}[/bold red]")
+            return
+
+        try:
+            synth_config = SynthesisConfig()
+            
+            # Apply Piper settings from config
+            piper_settings = self.settings.get('stream_audio', {}).get('piper', {})
+            speed = piper_settings.get('speed', 1.0)
+            if speed > 0:
+                synth_config.length_scale = 1.0 / speed
+            synth_config.noise_scale = piper_settings.get('noise_scale', 0.667)
+            synth_config.noise_w = piper_settings.get('noise_w', 0.8)
+            
+            if not self.headless: self.console.print("[cyan]DEBUG: Starting Piper synthesis loop...[/cyan]")
+            chunk_count = 0
+            
+            for chunk in self.voice.synthesize(text, synth_config):
+                if self._interrupted:
+                    if not self.headless: self.console.print("[yellow]DEBUG: Interrupted in synth loop[/yellow]")
+                    break
+                
+                chunk_count += 1
+                data = np.frombuffer(chunk.audio_int16_bytes, dtype=np.int16)
+                chunk_buffer.append(data)
+                buffer_len += len(data)
+                
+                # Check if we should process
+                if buffer_len >= max_accumulate_len:
+                    if not self.headless: self.console.print(f"[cyan]DEBUG: Flushing buffer (len={buffer_len})[/cyan]")
+                    
+                    # Flatten current buffer - PROCESS AS ONE PIECE
+                    full_buffer = np.concatenate(chunk_buffer)
+                    chunk_buffer = [] # Clear buffer list
+                    buffer_len = 0
+                    
+                    # Prepare Chunk
+                    raw_chunk = full_buffer
+                    audio_out = raw_chunk # Default Fallback
+                    
+                    if self.rvc_converter is not None and self._rvc_ready:
+                        try:
+                            # Prepare input with context
+                            if len(last_context) > 0:
+                                rvc_input = np.concatenate([last_context, raw_chunk])
+                            else:
+                                rvc_input = raw_chunk
+                            
+                            # Convert
+                            rvc_output = self.rvc_converter.convert(rvc_input, sample_rate)
+                            
+                            # Log but DO NOT FALLBACK (User Request)
+                            in_max = np.abs(rvc_input).max()
+                            out_max = np.abs(rvc_output).max()
+                            ratio = out_max / (in_max + 1e-6)
+                            
+                            if not self.headless: 
+                                self.console.print(f"[cyan]DEBUG: Chunk Amp In={in_max} Out={out_max} Ratio={ratio:.2f}[/cyan]")
+                            
+                            if out_max < 500 or (in_max > 1000 and ratio < 0.1):
+                                 if not self.headless:
+                                     self.console.print(f"[red]WARNING: RVC Low Output (Max={out_max}). Playing anyway.[/red]")
+                            
+                            # Trim Context from Output
+                            if len(last_context) > 0:
+                                trim_len = len(last_context)
+                                if trim_len < len(rvc_output):
+                                    audio_out = rvc_output[trim_len:]
+                                else:
+                                    audio_out = rvc_output
+                            else:
+                                audio_out = rvc_output
+
+                        except Exception as e:
+                            if not self.headless:
+                                self.console.print(f"[yellow]RVC chunk failed: {e}[/yellow]")
+                            audio_out = raw_chunk
+                    
+                    # Save context (raw) for next
+                    last_context = raw_chunk[-overlap_len:] if len(raw_chunk) > overlap_len else raw_chunk
+                    
+                    # Play
+                    if st and len(audio_out) > 0:
+                        st.write(audio_out)
+            
+            if not self.headless: self.console.print(f"[cyan]DEBUG: Piper loop finished. Chunks: {chunk_count}. Buffer remnant: {buffer_len}[/cyan]")
+            
+            # Process remaining buffer
+            if chunk_buffer and not self._interrupted:
+                raw_chunk = np.concatenate(chunk_buffer)
+                audio_out = raw_chunk
+                
+                if self.rvc_converter is not None and self._rvc_ready:
+                    try:
+                         # Prepare input with context
+                        if len(last_context) > 0:
+                            rvc_input = np.concatenate([last_context, raw_chunk])
+                        else:
+                            rvc_input = raw_chunk
+                        
+                        rvc_output = self.rvc_converter.convert(rvc_input, sample_rate)
+                        
+                        # Log but DO NOT FALLBACK (User Request)
+                        in_max = np.abs(rvc_input).max()
+                        out_max = np.abs(rvc_output).max()
+                        ratio = out_max / (in_max + 1e-6)
+                        
+                        if not self.headless: 
+                            self.console.print(f"[cyan]DEBUG: Final Chunk Amp In={in_max} Out={out_max} Ratio={ratio:.2f}[/cyan]")
+                        
+                        if out_max < 500 or (in_max > 1000 and ratio < 0.1):
+                             if not self.headless: self.console.print(f"[red]WARNING: RVC Low Output (Final) (Max={out_max}). Playing anyway.[/red]")
+                             
+                        # Trim Context from Output
+                        if len(last_context) > 0:
+                            trim_len = len(last_context)
+                            if trim_len < len(rvc_output):
+                                audio_out = rvc_output[trim_len:]
+                            else:
+                                audio_out = rvc_output
+                        else:
+                            audio_out = rvc_output
+                    except Exception as e:
+                        print(f"RVC remaining failed: {e}")
+                        audio_out = raw_chunk
+                
+                if st and len(audio_out) > 0:
+                    st.write(audio_out)
+            
+            if not self.headless: self.console.print("[green]DEBUG: say_fast FINISHED completely[/green]")
+                    
+        finally:
+            if hasattr(stream, '__exit__'):
+                stream.__exit__(None, None, None)
+            if not self.headless: self.console.print("[cyan]DEBUG: Stream Closed[/cyan]")
+                    
+
 
     def _write_wav_to_buffer(self, audio_data, sample_rate, channels=1):
         buffer = io.BytesIO()
@@ -147,9 +417,26 @@ class Voice:
         return buffer.getvalue()
 
     def say(self, text, speak_override=None):
+        self._interrupted = False
         speak_flag = True if speak_override is None else speak_override
         save_path_flag = None
         return_bytes_flag = False
+
+        # If already interrupted before starting
+        if self._interrupted: return None
+        
+        # Fast mode: bypass dynamics when RVC is ready and fast_mode is enabled
+        # Only use fast path for simple speech (no special tags)
+        use_fast = (
+            self._rvc_settings.get('fast_mode', False) 
+            and self.rvc_converter is not None 
+            and self._rvc_ready
+            and speak_flag
+            and not re.search(r'\[(save|bytes|speak|file)=', text, re.IGNORECASE)
+        )
+        if use_fast:
+            self.say_fast(text)
+            return None
 
         save_pattern = r"\[save=(?:'([^']*)'|\"([^\"]*)\"|([^\]\s]*))\]"
         file_pattern = r"\[file=(?:'([^']*)'|\"([^\"]*)\"|([^\]\s]*))\]"
@@ -188,21 +475,42 @@ class Voice:
         
         sample_rate, channels = self.voice.config.sample_rate, 1
         synth_config = SynthesisConfig()
+        
+        # Apply Piper settings from config
+        piper_settings = self.settings.get('stream_audio', {}).get('piper', {})
+        speed = piper_settings.get('speed', 1.0)
+        if speed > 0:
+            synth_config.length_scale = 1.0 / speed
+        synth_config.noise_scale = piper_settings.get('noise_scale', 0.667)
+        synth_config.noise_w = piper_settings.get('noise_w', 0.8)
+
         current_pitch_semitones = 0
         all_audio_data = []
 
-        with (_open_stream(sample_rate, channels) if speak_flag else nullcontext()) as st:
+        # Pass a lambda to check interruption status
+        check_interrupt = lambda: self._interrupted
+        
+        # When RVC is enabled, we need to collect all audio first, convert it, then play
+        # So we disable streaming during synthesis and play after conversion
+        rvc_enabled = self.rvc_converter is not None
+        stream_during_synthesis = speak_flag and not rvc_enabled
+
+        with (_open_stream(sample_rate, channels, check_interrupt) if stream_during_synthesis else nullcontext()) as st:
             progress_context = Progress(console=self.console) if not self.headless else nullcontext()
             with progress_context as progress:
                 task = progress.add_task("[cyan]Synthesizing...", total=len(parts)) if not self.headless else None
                 
                 for part in parts:
+                    if self._interrupted:
+                        if not self.headless: self.console.print("[yellow]Speech interrupted.[/yellow]")
+                        break
+                        
                     if not self.headless: progress.advance(task)
                     if part.startswith('[pause='):
                         duration_ms = int(part.strip('[]').split('=')[1])
                         silence = np.zeros(int(sample_rate * (duration_ms / 1000.0)), dtype=np.int16)
-                        if speak_flag and st: st.write(silence)
-                        if save_path_flag or return_bytes_flag: all_audio_data.append(silence)
+                        if stream_during_synthesis and st: st.write(silence)
+                        all_audio_data.append(silence)
                     elif part.startswith('[scale='):
                         scale_val = float(part.strip('[]').split('=')[1]); synth_config.length_scale = 1.0 / scale_val if scale_val != 0 else 1.0
                     elif part.startswith('[pitch='):
@@ -227,19 +535,35 @@ class Voice:
                             resampled_audio = resample(stretched_audio, len(audio_int16), axis=1)
                             final_part_audio = (resampled_audio.flatten() * 32768.0).astype(np.int16)
 
-                        if speak_flag and st: st.write(final_part_audio)
-                        if save_path_flag or return_bytes_flag: all_audio_data.append(final_part_audio)
+                        if stream_during_synthesis and st: st.write(final_part_audio)
+                        all_audio_data.append(final_part_audio)
         
         if not self.headless: self.console.print("---")
         final_audio = np.concatenate(all_audio_data) if all_audio_data else np.array([], dtype=np.int16)
+        
+        # Apply RVC voice conversion if enabled
+        if self.rvc_converter is not None and len(final_audio) > 0 and not self._interrupted:
+            if not self.headless: self.console.print("[cyan]Applying RVC voice conversion...[/cyan]")
+            try:
+                final_audio = self.rvc_converter.convert(final_audio, sample_rate)
+                if not self.headless: self.console.print("[OK] RVC conversion complete.")
+            except Exception as e:
+                if not self.headless: self.console.print(f"[bold yellow]RVC conversion failed: {e}[/bold yellow]")
+        
+        # Play audio after RVC conversion (if RVC was enabled and speak is on)
+        if rvc_enabled and speak_flag and len(final_audio) > 0 and not self._interrupted:
+            if not self.headless: self.console.print("[cyan]Playing converted audio...[/cyan]")
+            with _open_stream(sample_rate, channels, check_interrupt) as st:
+                if st:
+                    st.write(final_audio)
 
-        if save_path_flag:
+        if save_path_flag and not self._interrupted:
                 with wave.open(save_path_flag, 'wb') as wf:
                     wf.setnchannels(channels); wf.setsampwidth(2); wf.setframerate(sample_rate)
                     wf.writeframes(final_audio.tobytes())
                 self.console.print(f"[bold green]Audio saved to {save_path_flag}[/bold green]")
 
-        if return_bytes_flag:
+        if return_bytes_flag and not self._interrupted:
             return self._write_wav_to_buffer(final_audio, sample_rate, channels)
         return None
 
