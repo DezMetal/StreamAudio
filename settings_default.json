@@ -1,0 +1,24 @@
+{
+  "model_path": "models/femV1/en_US-hfc_female-medium.onnx",
+  "config_path": "models/femV1/en_US-hfc_female-medium.onnx.json",
+  "piper": {
+    "speed": 1.0,
+    "noise_scale": 0.67,
+    "noise_w": 0.8
+  },
+  "dynamics": {
+    "noise_step": 0.5,
+    "pitch_range": [-1.5, 1.5],
+    "pitch_deviation": 0.3,
+    "scale_range": [0.85, 1.25],
+    "scale_deviation": 0.2,
+    "pause_base": 150,
+    "pause_variance": 50
+  },
+  "rvc": {
+    "enabled": true,
+    "model_path": "models/miku/miku_default_rvc.onnx",
+    "pitch_shift": 1,
+    "fast_mode": true
+  }
+}
