@@ -230,14 +230,23 @@ class Voice:
                     protect=self._rvc_settings.get('protect', 0.5)
                 )
             
-            # Pre-warm the pipeline by doing a tiny dummy conversion
-            # This loads hubert and rmvpe models so first real call is fast
+            # Pre-warm the pipeline multiple times with actual audio
+            # Silent audio doesn't properly warm the ONNX model
             if not self.headless: self.console.print("[cyan]Warming up RVC pipeline...[/cyan]")
             try:
-                dummy_audio = np.zeros(16000, dtype=np.int16)  # 1 second of silence at 16kHz
-                self.rvc_converter.convert(dummy_audio, sample_rate=16000)
+                # Generate actual audio from Piper for warmup (silence doesn't work)
+                warmup_text = "test"
+                warmup_chunks = list(self.voice.synthesize(warmup_text))
+                if warmup_chunks:
+                    warmup_audio = np.concatenate([
+                        np.frombuffer(c.audio_int16_bytes, dtype=np.int16) 
+                        for c in warmup_chunks
+                    ])
+                    # Run warmup multiple times to fully initialize model
+                    for i in range(3):
+                        self.rvc_converter.convert(warmup_audio, sample_rate=self.voice.config.sample_rate)
             except Exception as warmup_err:
-                if not self.headless: self.console.print(f"[yellow]Warmup skipped: {warmup_err}[/yellow]")
+                if not self.headless: self.console.print(f"[yellow]Warmup issue: {warmup_err}[/yellow]")
             
             load_time = time.time() - rvc_start
             self._rvc_ready = True
@@ -463,7 +472,7 @@ class Voice:
             and self.rvc_converter is not None 
             and self._rvc_ready
             and speak_flag
-            and not re.search(r'\[(save|bytes|speak|file)=', text, re.IGNORECASE)
+            and not re.search(r'\[(save|bytes|speak|file)[=\]]', text, re.IGNORECASE)
         )
         if use_fast:
             self.say_fast(text)
