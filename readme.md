@@ -2,13 +2,16 @@
 
 A versatile and highly configurable text-to-speech (TTS) module for Python, designed to produce more natural and "organic" sounding speech. This module uses the Piper TTS engine and enhances it with a procedural dynamics system powered by Perlin noise, allowing for continuous, smooth variations in pitch and speed.
 
+**NEW: RVC Voice Conversion** - Transform the base TTS voice into any custom voice using ONNX-accelerated Retrieval-based Voice Conversion.
+
 The script can be run as a standalone, feature-rich command-line application or imported as a module into other Python projects to provide voice capabilities.
 
 ## Features
 
 - **High-Quality TTS:** Powered by the fast and efficient Piper TTS engine.
 - **Organic Procedural Dynamics:** Uses Perlin noise to generate smooth, continuous variations in pitch and speed, avoiding a robotic, monotonous delivery.
-- **Highly Configurable:** All dynamic parameters (pitch range, speed variation, pause lengths) can be fine-tuned through a `settings.json` file.
+- **RVC Voice Conversion:** Transform the base voice into any custom voice using ONNX models (5x faster than PyTorch).
+- **Highly Configurable:** All dynamic parameters (pitch range, speed variation, pause lengths, RVC settings) can be fine-tuned through a `settings.json` file.
 - **SSML-like Tag Support:** Manually control speech dynamics using intuitive inline tags like `[pitch]`, `[scale]`, and `[pause]`.
 - **Dual-Use Design:** Functions as both a standalone command-line tool and an importable Python module.
 - **Multiple Output Options:**
@@ -115,6 +118,56 @@ To customize the voice's behavior, create a `settings.json` file in the same dir
 - **`pitch_deviation`**: The volatility of the pitch within its range (0.0 to 1.0). A lower value results in a calmer, more stable pitch.
 - **`scale_range`**: The maximum possible speed variation (e.g., `[0.85, 1.25]`).
 - **`scale_deviation`**: The volatility of the speed within its range (0.0 to 1.0). A lower value results in a more monotonous speed.
+
+### RVC Voice Conversion Settings
+
+Enable RVC to transform the base Piper voice into any custom voice. Add this to your `settings.json`:
+
+```json
+{
+    "rvc": {
+        "enabled": true,
+        "model_path": "models/my_voice/voice.onnx",
+        "pitch_shift": 0,
+        "fast_mode": true
+    }
+}
+```
+
+**RVC Options:**
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable/disable RVC voice conversion |
+| `model_path` | string | `null` | Path to `.onnx` RVC model file |
+| `pitch_shift` | int | `0` | Pitch adjustment in semitones (-12 to +12) |
+| `fast_mode` | bool | `true` | Skip dynamics processing for lower latency (recommended) |
+
+**Requirements for RVC:**
+- ONNX RVC model (`.onnx` file)
+- Hubert embedder model (`vec-768-layer-12.onnx`) in the `models/` directory
+
+### Piper Voice Settings
+
+Control the base Piper TTS voice characteristics:
+
+```json
+{
+    "stream_audio": {
+        "piper": {
+            "speed": 1.0,
+            "noise_scale": 0.667,
+            "noise_w": 0.8
+        }
+    }
+}
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `speed` | `1.0` | Speech speed (>1 faster, <1 slower) |
+| `noise_scale` | `0.667` | Voice volatility/expressiveness |
+| `noise_w` | `0.8` | Phoneme length variation |
 
 ## Supported SSML-like Tags
 
