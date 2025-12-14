@@ -111,10 +111,16 @@ class RVCOnnxConverter:
             num_samples = int(len(audio) * 16000 / sr)
             audio = resample(audio, num_samples).astype(np.float32)
         
-        # Normalize
+        # Normalize to float32 range [-1, 1]
         audio = audio.astype(np.float32)
         if np.abs(audio).max() > 1.0:
             audio = audio / 32768.0
+        
+        # CRITICAL: Normalize to consistent peak level for embedder stability
+        # Embedder expects normalized audio at ~0.95 peak for best results
+        audio_max = np.abs(audio).max()
+        if audio_max > 0:
+            audio = audio * (0.95 / audio_max)
         
         # Embedder expects [1, 1, sample_length] - batch, channels, samples
         audio_input = audio.reshape(1, 1, -1)
@@ -337,13 +343,23 @@ class RVCOnnxConverter:
             num_samples = int(len(audio_out) * sample_rate / self.target_sr)
             audio_out = resample(audio_out, num_samples)
         
-        # Output normalization - preserve full spectrum including quiet parts
+        # Output normalization - ensure audible output
         out_max = np.abs(audio_out).max()
         
-        if out_max > 0 and out_max < 0.3:
-            # Normalize quiet output to reasonable level (preserves natural dynamics)
-            gain = min(0.3 / out_max, 5.0)  # Conservative boost
+        if out_max < 0.001:
+            # CRITICAL ERROR: Output is essentially silent
+            print(f"[CRITICAL] RVC output is SILENT! Max: {out_max:.6f}")
+            print(f"  Input stats: min={np.abs(audio_float).min():.3f} max={np.abs(audio_float).max():.3f} mean={np.abs(audio_float).mean():.3f}")
+            print(f"  Feature stats: min={features.min():.3f} max={features.max():.3f} mean={features.mean():.3f}")
+            # Return input audio as-is since RVC failed
+            return audio_int16
+        
+        if out_max > 0 and out_max < 0.5:
+            # Aggressive normalization for quiet output
+            # Target 0.5 peak (about 50% of maximum amplitude)
+            gain = min(0.5 / out_max, 8.0)  # Allow up to 8x boost
             audio_out = audio_out * gain
+            print(f"[INFO] Boosted quiet RVC output by {gain:.2f}x (was {out_max:.3f})")
         
         # Convert back to int16
         audio_out = np.clip(audio_out * 32768.0, -32768, 32767).astype(np.int16)

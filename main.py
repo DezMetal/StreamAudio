@@ -230,23 +230,11 @@ class Voice:
                     protect=self._rvc_settings.get('protect', 0.5)
                 )
             
-            # Pre-warm the pipeline multiple times with actual audio
-            # Silent audio doesn't properly warm the ONNX model
-            if not self.headless: self.console.print("[cyan]Warming up RVC pipeline...[/cyan]")
-            try:
-                # Generate actual audio from Piper for warmup (silence doesn't work)
-                warmup_text = "test"
-                warmup_chunks = list(self.voice.synthesize(warmup_text))
-                if warmup_chunks:
-                    warmup_audio = np.concatenate([
-                        np.frombuffer(c.audio_int16_bytes, dtype=np.int16) 
-                        for c in warmup_chunks
-                    ])
-                    # Run warmup multiple times to fully initialize model
-                    for i in range(3):
-                        self.rvc_converter.convert(warmup_audio, sample_rate=self.voice.config.sample_rate)
-            except Exception as warmup_err:
-                if not self.headless: self.console.print(f"[yellow]Warmup issue: {warmup_err}[/yellow]")
+            
+            # RVC is designed for real-time voice conversion - ready once loaded
+            # Model stays "warm" (loaded) and becomes "hot" when TTS triggers
+            if not self.headless: self.console.print("[cyan]RVC model loaded and ready[/cyan]")
+            
             
             load_time = time.time() - rvc_start
             self._rvc_ready = True
