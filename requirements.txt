@@ -6,3 +6,5 @@ scipy
 perlin-noise
 rich
 pyaudio
+# Optional: RVC voice conversion support
+# rvc-python  # Uncomment to enable RVC voice conversion
