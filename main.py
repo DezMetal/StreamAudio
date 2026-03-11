@@ -27,6 +27,13 @@ import queue
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
+# For PyInstaller bundles: app_dir is where the exe lives (user-writable, persistent)
+# script_dir points to _MEIPASS (temp, read-only bundled files)
+if getattr(sys, 'frozen', False):
+    app_dir = os.path.dirname(sys.executable)
+else:
+    app_dir = script_dir
+
 # --- HELPER FUNCTIONS ---
 def _update_settings(original, update):
     for key, value in update.items():
@@ -80,10 +87,17 @@ if os.path.exists(_default_settings_path):
 
 # Resolve relative paths to be relative to script_dir (not CWD)
 def _resolve_path(path):
-    """Resolve path relative to StreamAudio directory if not absolute."""
-    if path and not os.path.isabs(path):
-        return os.path.join(script_dir, path)
-    return path
+    """Resolve path: check app_dir first (user-customizable), fallback to script_dir (bundled)."""
+    if not path:
+        return path
+    if os.path.isabs(path):
+        return path
+    # Check user's install dir first (allows custom models)
+    app_resolved = os.path.join(app_dir, path)
+    if os.path.exists(app_resolved):
+        return app_resolved
+    # Fallback to bundled resources
+    return os.path.join(script_dir, path)
 
 # Fix model paths
 DEFAULT_SETTINGS["model_path"] = _resolve_path(DEFAULT_SETTINGS.get("model_path"))
@@ -299,9 +313,14 @@ class SpeechQueue:
         self._interrupted.set()
         self.clear()
         self.voice.stop()
-        threading.Timer(0.5, self._interrupted.clear).start()
         # Clear the interrupt flag after a moment
         threading.Timer(0.5, self._interrupted.clear).start()
+    
+    def is_empty(self):
+        """Check if the queue has no pending or playing items."""
+        with self._buffer_lock:
+            has_buffers = bool(self.audio_buffers)
+        return self.text_queue.empty() and not has_buffers
     
     def _worker_loop(self):
         """Background worker that processes text into audio (parallel-safe)."""
