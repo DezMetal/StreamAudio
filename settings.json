@@ -1,6 +1,6 @@
 {
   "piper": {
-    "speed": 1,
+    "speed": 1.0,
     "noise_scale": 0.67,
     "noise_w": 0.8
   },
@@ -12,6 +12,6 @@
     "index_rate": 0.5,
     "protect": 0.5,
     "device": "cpu",
-    "fast_mode": true
+    "fast_mode": false
   }
 }
