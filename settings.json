@@ -1,17 +1,13 @@
 {
   "piper": {
-    "speed": 1.0,
+    "speed": 1,
     "noise_scale": 0.67,
     "noise_w": 0.8
   },
   "rvc": {
-    "enabled": true,
     "model_path": "models/miku/miku_default_rvc.onnx",
     "pitch_shift": 1,
-    "pitch_method": "pm",
     "index_rate": 0.5,
-    "protect": 0.5,
-    "device": "cpu",
-    "fast_mode": false
+    "enabled": true
   }
 }
