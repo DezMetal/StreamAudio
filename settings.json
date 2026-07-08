@@ -5,9 +5,17 @@
     "noise_w": 0.8
   },
   "rvc": {
-    "model_path": "models/miku/miku_default_rvc.onnx",
-    "pitch_shift": 1,
+    "enabled": true,
+    "model_path": "C:\\Users\\user\\Documents\\pythons\\test\\Aether\\StreamAudio\\models\\miku\\miku_default_rvc.onnx",
+    "pitch_shift": 0,
+    "pitch_method": "pm",
     "index_rate": 0.5,
-    "enabled": true
+    "protect": 0.33,
+    "device": "cpu",
+    "fast_mode": true
+  },
+  "remote": {
+    "enabled": false,
+    "url": "http://localhost:5000/api/tts"
   }
 }
