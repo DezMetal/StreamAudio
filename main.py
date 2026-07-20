@@ -1119,7 +1119,14 @@ def run_server():
                         conn.send('--PONG--')
                     else:
                         # Any other message is treated as text to speak
-                        tts_voice.say(msg)
+                        res = tts_voice.say(msg)
+                        try:
+                            if res is not None:
+                                conn.send(res)
+                            else:
+                                conn.send(b'')
+                        except Exception:
+                            pass
             except Exception as e:
                 print(f"Server error: {e}")
 
