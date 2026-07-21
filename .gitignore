@@ -189,3 +189,4 @@ cori/
 femV1/
 vec-768-layer-12.onnx
 #voice_models_in_here#
+*.zip
