@@ -190,3 +190,15 @@ femV1/
 vec-768-layer-12.onnx
 #voice_models_in_here#
 *.zip
+
+# ── Local machine config ─────────────────────────────────────────────────
+# settings.json holds per-machine paths and the remote TTS key. Voice()
+# starts from in-code DEFAULT_SETTINGS and only overlays this file if present,
+# so consumers work without it. settings_default.json is the tracked template.
+settings.json
+
+# ── Runtime artifacts / scratch ──────────────────────────────────────────
+*.pid
+test.txt
+test.wav
+scripts/bytes.txt
