@@ -1,0 +1,80 @@
+STREAMAUDIO -- PROPRIETARY SOFTWARE LICENCE
+Copyright (c) 2026 D-Net Lab. All rights reserved.
+
+    "With Accessibility Comes Understanding and Inspiration"
+    "From Mind To Matter"
+
+================================================================================
+STATUS
+================================================================================
+
+StreamAudio is proprietary software owned by D-Net Lab. It is not open source
+and is not offered under an open-source licence.
+
+StreamAudio is currently distributed only as an integrated component of D-Net
+Lab products (notably Aether). Use of StreamAudio as part of such a product is
+governed by that product's end user licence agreement.
+
+NOTE: this product is pending its final D-Net Lab release name. References to
+"StreamAudio" apply equally to the software under its eventual name.
+
+================================================================================
+GRANT
+================================================================================
+
+No licence to use, copy, modify or distribute StreamAudio as a standalone
+component is granted by this file. Rights arise only through a D-Net Lab
+product licence that includes it, or a separate written agreement with
+D-Net Lab.
+
+Where StreamAudio is included in a licensed D-Net Lab product, the licensee may
+use it solely as part of that product, subject to that product's terms.
+
+================================================================================
+RESTRICTIONS
+================================================================================
+
+Except as expressly permitted in writing by D-Net Lab, you shall not:
+
+  (a) extract, separate or redistribute StreamAudio from the product that
+      includes it;
+  (b) reverse engineer, decompile or disassemble it, except to the extent such
+      restriction is prohibited by applicable law;
+  (c) remove or alter any D-Net Lab attribution or proprietary notice;
+  (d) use it to develop a competing product.
+
+================================================================================
+ATTRIBUTION
+================================================================================
+
+The D-Net Lab name, associated logos, and the phrases "With Accessibility Comes
+Understanding and Inspiration" and "From Mind To Matter" are identity items of
+D-Net Lab and must not be removed, obscured or used to imply endorsement.
+
+================================================================================
+THIRD-PARTY COMPONENTS
+================================================================================
+
+StreamAudio incorporates third-party software, each retaining its own licence
+and copyright. See THIRD-PARTY-LICENSES. Regenerate with:
+
+    python tools/gen_licenses.py --project "StreamAudio" --requirements requirements.txt
+
+Note in particular that voice models and inference engines may carry their own
+terms governing commercial use. Verify these before distributing any bundled
+voice model.
+
+================================================================================
+NO WARRANTY
+================================================================================
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. TO THE MAXIMUM
+EXTENT PERMITTED BY LAW, D-NET LAB SHALL NOT BE LIABLE FOR ANY DAMAGES ARISING
+FROM ITS USE.
+
+================================================================================
+CONTACT
+================================================================================
+
+D-Net Lab
+https://lab.dnet.live

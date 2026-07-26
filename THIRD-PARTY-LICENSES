@@ -1,0 +1,35 @@
+THIRD-PARTY LICENCES -- StreamAudio
+========================================================================
+
+StreamAudio is a product of D-Net Lab.
+Copyright (c) 2026 D-Net Lab. All rights reserved.
+
+    "With Accessibility Comes Understanding and Inspiration"
+
+StreamAudio incorporates the third-party components listed below. Each
+remains the property of its respective authors and is used under the
+terms of its own licence. This notice is provided to satisfy those
+terms; it does not alter the licence covering StreamAudio itself.
+
+Generated 2026-07-26 by tools/gen_licenses.py
+
+------------------------------------------------------------------------
+
+PERMISSIVELY LICENSED COMPONENTS
+--------------------------------
+
+numpy 2.3.5
+    Licence : BSD License
+    Author  : Travis E. Oliphant et al.
+    Source  : homepage, https://numpy.org
+
+rich 14.3.3
+    Licence : MIT License
+    Author  : Will McGugan
+    Source  : Documentation, https://rich.readthedocs.io/en/latest/
+
+
+------------------------------------------------------------------------
+
+Full licence texts are available from each project's source.
+Questions: D-Net Lab
