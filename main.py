@@ -221,8 +221,14 @@ class SpeechQueue:
         self._stop_event.clear()
         self._interrupted.clear()
         self._is_running = True
-        self._next_sequence = 0
-        self._playback_sequence = 0
+        # Only rewind the counters when nothing is outstanding. enqueue() calls
+        # start() lazily, so resetting unconditionally could hand a fresh
+        # utterance sequence 0 while a stale slot 0 still existed -- playback
+        # would then read the wrong buffer or wait on an already-set event.
+        with self._buffer_lock:
+            if not self.audio_buffers:
+                self._next_sequence = 0
+                self._playback_sequence = 0
         
         # Cache audio settings
         self._sample_rate = self.voice.voice.config.sample_rate
@@ -285,29 +291,58 @@ class SpeechQueue:
         """
         if not self._is_running:
             self.start()
-            
+
         if text and text.strip():
-            seq_id = self._next_sequence
-            self._next_sequence += 1
-            
-            # Pre-create the buffer slot and ready event
+            # Assign the sequence and create its slot atomically. A host that
+            # streams sentences can enqueue from more than one thread, and two
+            # callers reading _next_sequence before either increments it would
+            # collide on the same slot.
             with self._buffer_lock:
+                seq_id = self._next_sequence
+                self._next_sequence += 1
                 self.audio_buffers[seq_id] = []
                 self.audio_ready[seq_id] = threading.Event()
-            
+
             self.text_queue.put((seq_id, text))
+            # Playback may be parked waiting for exactly this sequence.
+            with self._playback_ready:
+                self._playback_ready.notify_all()
     
     def clear(self):
-        """Clear pending utterances."""
+        """Clear pending utterances.
+
+        Discarding queued TEXT is not enough. Every enqueued item also has a
+        reserved buffer slot, and playback advances strictly in sequence order
+        -- so dropping the text while leaving the slots behind leaves playback
+        parked forever on a sequence whose audio will never be produced. The
+        queue then appears to hang, and is_empty() never returns True again.
+
+        So: drop the text, drop the slots, and fast-forward playback past
+        everything that was discarded.
+        """
+        dropped = 0
         while not self.text_queue.empty():
             try:
                 self.text_queue.get_nowait()
+                dropped += 1
             except queue.Empty:
                 break
-                
-        if not self.headless:
-            self.console.print("[yellow]SpeechQueue cleared[/yellow]")
-    
+
+        with self._buffer_lock:
+            self.audio_buffers.clear()
+            # Release anyone blocked on a slot that is now gone.
+            for ev in self.audio_ready.values():
+                ev.set()
+            self.audio_ready.clear()
+            # Nothing below _next_sequence will ever play now.
+            self._playback_sequence = self._next_sequence
+
+        with self._playback_ready:
+            self._playback_ready.notify_all()
+
+        if not self.headless and dropped:
+            self.console.print(f"[yellow]SpeechQueue cleared ({dropped} pending)[/yellow]")
+
     def interrupt(self):
         """Interrupt current speech and clear all queues."""
         self._interrupted.set()
