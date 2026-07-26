@@ -1094,6 +1094,41 @@ def cleanup_pid_file():
     if os.path.exists(PID_FILE):
         os.remove(PID_FILE)
 
+
+def get_daemon_pid():
+    """PID of the hot TTS daemon, or None if it is not running.
+
+    Reads the PID file directly rather than pinging, so it is cheap enough to
+    call on a hot path. May return a stale PID if the daemon died without
+    running its atexit hook; callers should treat it as advisory.
+    """
+    try:
+        with open(PID_FILE, "r", encoding="utf-8") as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def audio_pids():
+    """Every PID whose audio output belongs to StreamAudio.
+
+    The daemon deliberately stays HOT between calls so synthesis is fast, which
+    means it is a long-lived process that usually is NOT a child of whatever
+    program is currently speaking -- it may well have been started by an
+    earlier run entirely.
+
+    Any host that ducks or mixes other applications' audio must exclude these,
+    or it will turn down the very voice it is producing. Call this rather than
+    assuming the daemon shares your PID or your process tree.
+
+    Returns a set; empty when no daemon is running.
+    """
+    pids = set()
+    pid = get_daemon_pid()
+    if pid:
+        pids.add(pid)
+    return pids
+
 def run_server():
     """The server process that holds the 'hot' Voice instance."""
     # Write PID to file and register cleanup
