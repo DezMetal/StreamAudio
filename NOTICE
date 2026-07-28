@@ -4,16 +4,20 @@ Copyright (c) 2026 D-Net Lab
     "With Accessibility Comes Understanding and Inspiration"
     "From Mind To Matter"
 
-StreamAudio was created and is maintained by D-Net Lab.
+This product includes software developed by D-Net Lab.
 
-This software is distributed under the D-Net Lab Source-Available Licence (see
-LICENSE). It is free for non-commercial use. Commercial use requires a separate
-licence from D-Net Lab — which is offered, including to individuals and small
-companies. Ask.
+StreamAudio was created and is maintained by D-Net Lab. This NOTICE file is part
+of the Apache License 2.0 terms under which StreamAudio is distributed: any
+redistribution of StreamAudio, in source or binary form, with or without
+modification, MUST include a readable copy of the attribution notices contained
+in this file (Apache-2.0, Section 4(d)). Contributors may add their own
+attributions below, but may not remove or obscure those of D-Net Lab.
 
-Any redistribution, fork, or product that includes this software MUST reproduce
-the attribution notice below, and must not claim that anyone other than D-Net
-Lab created it. See LICENSE Section 4.
+Derivative works and forks must retain this NOTICE and continue to credit
+D-Net Lab as the original creator of StreamAudio.
+
+NOTE: this product is pending its final D-Net Lab release name. References to
+"StreamAudio" apply equally to the software under its eventual name.
 
 --------------------------------------------------------------------------------
 ATTRIBUTION
@@ -23,13 +27,12 @@ Original author and maintainer:
     D-Net Lab
     https://lab.dnet.live
 
-Reproduce this, somewhere the people using your software can find it:
+If you use StreamAudio in your own software, please credit it as:
 
-    Powered by StreamAudio
-    Copyright (c) 2026 D-Net Lab -- https://lab.dnet.live
+    "Powered by StreamAudio -- D-Net Lab"
 
-A modified version must say so, and must not carry the unqualified name. For
-example: "MyProduct Speech, based on StreamAudio by D-Net Lab".
+The Apache-2.0 licence does not grant rights in the D-Net Lab name or marks
+(Apache-2.0, Section 6). See TRADEMARKS.md.
 
 --------------------------------------------------------------------------------
 VOICE MODELS
@@ -37,7 +40,7 @@ VOICE MODELS
 
 Voice models are NOT part of this software and are NOT distributed with it. Each
 carries its own licence and its own training-data provenance, either of which
-may restrict commercial use or require separate attribution. See VOICES.md.
+may restrict use or require separate attribution. See VOICES.md.
 
 --------------------------------------------------------------------------------
 THIRD-PARTY COMPONENTS

@@ -5,8 +5,7 @@ Perlin-noise dynamics for delivery, and optional RVC voice conversion — expose
 as a long-lived service so speech starts immediately instead of paying model
 load cost on every utterance.
 
-[![Licence: Source-Available](https://img.shields.io/badge/licence-source--available-orange.svg)](LICENSE)
-[![Free for non-commercial](https://img.shields.io/badge/non--commercial-free-brightgreen.svg)](LICENSE)
+[![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 
 > Created and maintained by **[D-Net Lab](https://lab.dnet.live)**
 > *"With Accessibility Comes Understanding and Inspiration" · "From Mind To Matter"*
@@ -16,19 +15,27 @@ load cost on every utterance.
 
 ---
 
-## Licence
+## Licence and attribution
 
-**Free for non-commercial use** — personal projects, learning, research,
-teaching, evaluation. Read the source, modify it, share your changes.
+StreamAudio is free and open source under **[Apache-2.0](LICENSE)**. Use it,
+modify it, build commercial products on it — no fee, no permission needed.
 
-**Commercial use requires a licence** from D-Net Lab. That is an offer, not a
-refusal: licences are available to individuals and small companies, and there is
-a 30-day free commercial evaluation window. Ask — https://lab.dnet.live
+**What is asked in return is credit.** Apache-2.0 requires you to keep the
+[`NOTICE`](NOTICE) file, retain copyright headers, and mark files you have
+changed. The licence does **not** grant rights to the D-Net Lab name
+(Apache-2.0 §6): you may say your product is *built on* StreamAudio, but you may
+not claim you created it, present a fork as originally your own work, or use
+D-Net Lab's name or marks as your own. See **[TRADEMARKS.md](TRADEMARKS.md)** —
+it is short, and everything reasonable is permitted.
 
-**Always required, commercial or not:** credit D-Net Lab as the creator, and do
-not claim you made it. Saying *"Powered by StreamAudio"* or *"built on
-StreamAudio by D-Net Lab"* is always fine and needs no permission. See
-[LICENSE](LICENSE) §4 and [NOTICE](NOTICE).
+```
+Powered by StreamAudio
+Copyright (c) 2026 D-Net Lab — https://lab.dnet.live
+Licensed under Apache-2.0
+```
+
+Open source runs on credit. Taking the name off takes the one thing the
+arrangement was built to preserve.
 
 ## Voices are not included
 
