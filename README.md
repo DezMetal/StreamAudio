@@ -1,10 +1,43 @@
-# Dynamic TTS Voice Module
+# StreamAudio
 
-A versatile and highly configurable text-to-speech (TTS) module for Python, designed to produce more natural and "organic" sounding speech. This module uses the Piper TTS engine and enhances it with a procedural dynamics system powered by Perlin noise, allowing for continuous, smooth variations in pitch and speed.
+**A hot TTS daemon with a prosody engine.** Piper for synthesis, procedural
+Perlin-noise dynamics for delivery, and optional RVC voice conversion — exposed
+as a long-lived service so speech starts immediately instead of paying model
+load cost on every utterance.
 
-**NEW: RVC Voice Conversion** - Transform the base TTS voice into any custom voice using ONNX-accelerated Retrieval-based Voice Conversion.
+[![Licence: Source-Available](https://img.shields.io/badge/licence-source--available-orange.svg)](LICENSE)
+[![Free for non-commercial](https://img.shields.io/badge/non--commercial-free-brightgreen.svg)](LICENSE)
 
-The script can be run as a standalone, feature-rich command-line application or imported as a module into other Python projects to provide voice capabilities.
+> Created and maintained by **[D-Net Lab](https://lab.dnet.live)**
+> *"With Accessibility Comes Understanding and Inspiration" · "From Mind To Matter"*
+>
+> *Pending its final release name. "StreamAudio" refers to this software under
+> whatever it ends up called.*
+
+---
+
+## Licence
+
+**Free for non-commercial use** — personal projects, learning, research,
+teaching, evaluation. Read the source, modify it, share your changes.
+
+**Commercial use requires a licence** from D-Net Lab. That is an offer, not a
+refusal: licences are available to individuals and small companies, and there is
+a 30-day free commercial evaluation window. Ask — https://lab.dnet.live
+
+**Always required, commercial or not:** credit D-Net Lab as the creator, and do
+not claim you made it. Saying *"Powered by StreamAudio"* or *"built on
+StreamAudio by D-Net Lab"* is always fine and needs no permission. See
+[LICENSE](LICENSE) §4 and [NOTICE](NOTICE).
+
+## Voices are not included
+
+StreamAudio ships no voice models. You supply your own `.onnx` Piper voice —
+hundreds are published freely — and optionally an RVC model on top. This keeps
+the repository tiny and leaves you unbound by anyone else's model licence. See
+[VOICES.md](VOICES.md).
+
+---
 
 ## Features
 

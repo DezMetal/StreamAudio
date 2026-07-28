@@ -1,76 +1,181 @@
-STREAMAUDIO -- PROPRIETARY SOFTWARE LICENCE
+STREAMAUDIO — D-NET LAB SOURCE-AVAILABLE LICENCE
+Version 1.0
 Copyright (c) 2026 D-Net Lab. All rights reserved.
 
     "With Accessibility Comes Understanding and Inspiration"
     "From Mind To Matter"
 
-================================================================================
-STATUS
-================================================================================
-
-StreamAudio is proprietary software owned by D-Net Lab. It is not open source
-and is not offered under an open-source licence.
-
-StreamAudio is currently distributed only as an integrated component of D-Net
-Lab products (notably Aether). Use of StreamAudio as part of such a product is
-governed by that product's end user licence agreement.
-
 NOTE: this product is pending its final D-Net Lab release name. References to
 "StreamAudio" apply equally to the software under its eventual name.
 
 ================================================================================
-GRANT
+PLAIN-LANGUAGE SUMMARY
 ================================================================================
 
-No licence to use, copy, modify or distribute StreamAudio as a standalone
-component is granted by this file. Rights arise only through a D-Net Lab
-product licence that includes it, or a separate written agreement with
-D-Net Lab.
+This summary is for orientation only; the terms below govern.
 
-Where StreamAudio is included in a licensed D-Net Lab product, the licensee may
-use it solely as part of that product, subject to that product's terms.
+  YOU MAY, FOR FREE:  read the source, run it, modify it, share your changes,
+                      and use it for anything that is not commercial — personal
+                      projects, learning, research, teaching, evaluation.
 
-================================================================================
-RESTRICTIONS
-================================================================================
+  YOU MAY NOT:        use it commercially without a licence from D-Net Lab,
+                      remove attribution, or claim you created it.
 
-Except as expressly permitted in writing by D-Net Lab, you shall not:
+  ALWAYS REQUIRED:    credit D-Net Lab as the creator, in any copy, fork, or
+                      product that includes this software.
 
-  (a) extract, separate or redistribute StreamAudio from the product that
-      includes it;
-  (b) reverse engineer, decompile or disassemble it, except to the extent such
-      restriction is prohibited by applicable law;
-  (c) remove or alter any D-Net Lab attribution or proprietary notice;
-  (d) use it to develop a competing product.
+Commercial use is available. It is not a refusal — it is a conversation.
+Contact D-Net Lab at https://lab.dnet.live.
 
 ================================================================================
-ATTRIBUTION
+1. DEFINITIONS
 ================================================================================
 
-The D-Net Lab name, associated logos, and the phrases "With Accessibility Comes
-Understanding and Inspiration" and "From Mind To Matter" are identity items of
-D-Net Lab and must not be removed, obscured or used to imply endorsement.
+"Software" means StreamAudio, in source or compiled form, including any part of
+it and any modified version.
+
+"You" means the person or organisation exercising rights under this licence.
+
+"Non-Commercial Use" means use that is not primarily intended for, or directed
+toward, commercial advantage or monetary compensation. Personal use, study,
+academic research, teaching, evaluation, and use by a non-profit organisation in
+furtherance of its non-profit purposes are Non-Commercial Use.
+
+"Commercial Use" means any use that is not Non-Commercial Use. It includes,
+without limitation: use in or alongside a product or service you sell, license,
+or monetise; use to provide a paid or ad-supported service; use in the internal
+operations of a for-profit organisation; and inclusion in a commercial
+distribution.
+
+"Attribution Notice" means the notice reproduced in Section 5.
 
 ================================================================================
-THIRD-PARTY COMPONENTS
+2. GRANT — NON-COMMERCIAL USE
 ================================================================================
 
-StreamAudio incorporates third-party software, each retaining its own licence
-and copyright. See THIRD-PARTY-LICENSES. Regenerate with:
+Subject to your compliance with this licence, D-Net Lab grants you a worldwide,
+royalty-free, non-exclusive, non-transferable licence to:
+
+  (a) use and run the Software for Non-Commercial Use;
+  (b) reproduce the Software and make modified versions of it;
+  (c) distribute the Software and your modified versions, provided every copy
+      is distributed under this same licence, carries the Attribution Notice,
+      and clearly identifies any changes you made.
+
+No other rights are granted. Rights not expressly granted are reserved.
+
+================================================================================
+3. COMMERCIAL USE REQUIRES A SEPARATE LICENCE
+================================================================================
+
+This licence grants NO rights for Commercial Use. Commercial Use requires a
+separate written agreement with D-Net Lab.
+
+D-Net Lab actively offers commercial licences, including to individuals and
+small companies. If you are unsure whether your use is commercial, ask before
+assuming it is not.
+
+    https://lab.dnet.live
+
+Evaluation: you may use the Software commercially, without charge, for up to
+thirty (30) days for the sole purpose of evaluating whether to obtain a
+commercial licence.
+
+================================================================================
+4. AUTHORSHIP AND ATTRIBUTION
+================================================================================
+
+This is the core condition of this licence, and it applies to every use,
+commercial or not.
+
+  (a) D-Net Lab is the creator and author of the Software. You may not claim,
+      state, or imply that you or any third party created, authored, or
+      originated it, in whole or in part.
+
+  (b) You may not remove, alter, obscure, or relocate any copyright notice,
+      the Attribution Notice, the NOTICE file, or any SPDX or authorship header
+      in the source.
+
+  (c) A modified version must clearly state that it is modified and must not be
+      presented as the original. Name it something of your own — for example
+      "MyProduct Speech, based on StreamAudio by D-Net Lab" — not "StreamAudio".
+
+  (d) The Attribution Notice must be reasonably discoverable by the people using
+      your software: in a credits, about, or licences screen for an application;
+      in the documentation and distributed NOTICE for a library or service.
+
+Accurate, factual statements are always permitted and require no permission —
+for example "Powered by StreamAudio", "Built on StreamAudio by D-Net Lab", or
+"Compatible with StreamAudio".
+
+================================================================================
+5. ATTRIBUTION NOTICE
+================================================================================
+
+    Powered by StreamAudio
+    Copyright (c) 2026 D-Net Lab — https://lab.dnet.live
+
+================================================================================
+6. TRADEMARKS
+================================================================================
+
+This licence grants no rights in D-Net Lab's names, logos, or marks, including
+"D-Net Lab", "StreamAudio", "Aether", and the phrases "With Accessibility Comes
+Understanding and Inspiration" and "From Mind To Matter". You may use them only
+to accurately identify the origin of the Software, and never in a way that
+suggests D-Net Lab endorses or sponsors your product.
+
+================================================================================
+7. CONTRIBUTIONS
+================================================================================
+
+By submitting a contribution, you grant D-Net Lab a perpetual, worldwide,
+royalty-free, irrevocable licence to use, reproduce, modify, distribute, and
+sublicense it, including under commercial terms and under a different licence.
+You confirm you have the right to grant this.
+
+This is what allows D-Net Lab to keep offering commercial licences. Your
+authorship is retained and credited; this grant does not restrict your own use
+of your own contribution.
+
+================================================================================
+8. VOICE MODELS AND THIRD-PARTY COMPONENTS
+================================================================================
+
+The Software incorporates third-party components, each retaining its own licence
+and copyright. See THIRD-PARTY-LICENSES; regenerate with:
 
     python tools/gen_licenses.py --project "StreamAudio" --requirements requirements.txt
 
-Note in particular that voice models and inference engines may carry their own
-terms governing commercial use. Verify these before distributing any bundled
-voice model.
+VOICE MODELS ARE NOT COVERED BY THIS LICENCE AND ARE NOT DISTRIBUTED WITH THE
+SOFTWARE. A voice model carries its own terms, which may restrict commercial
+use, may require attribution to its trainer or dataset, and may be subject to
+rights held by the speaker whose recordings trained it. Verify the licence and
+provenance of every voice model before using or distributing it. See VOICES.md.
 
 ================================================================================
-NO WARRANTY
+9. TERMINATION
 ================================================================================
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. TO THE MAXIMUM
-EXTENT PERMITTED BY LAW, D-NET LAB SHALL NOT BE LIABLE FOR ANY DAMAGES ARISING
-FROM ITS USE.
+This licence terminates automatically if you breach it. It is reinstated if you
+cure the breach within 30 days of becoming aware of it, provided this is your
+first breach. Sections 4, 6, 10 and 11 survive termination.
+
+================================================================================
+10. NO WARRANTY
+================================================================================
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE, AND NON-INFRINGEMENT.
+
+================================================================================
+11. LIMITATION OF LIABILITY
+================================================================================
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, D-NET LAB SHALL NOT BE LIABLE FOR ANY
+CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT, OR OTHERWISE,
+ARISING FROM OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
 
 ================================================================================
 CONTACT
@@ -78,3 +183,6 @@ CONTACT
 
 D-Net Lab
 https://lab.dnet.live
+
+Commercial licensing, permissions, and anything this document does not clearly
+answer: just ask.

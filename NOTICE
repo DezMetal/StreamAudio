@@ -1,0 +1,55 @@
+StreamAudio
+Copyright (c) 2026 D-Net Lab
+
+    "With Accessibility Comes Understanding and Inspiration"
+    "From Mind To Matter"
+
+StreamAudio was created and is maintained by D-Net Lab.
+
+This software is distributed under the D-Net Lab Source-Available Licence (see
+LICENSE). It is free for non-commercial use. Commercial use requires a separate
+licence from D-Net Lab — which is offered, including to individuals and small
+companies. Ask.
+
+Any redistribution, fork, or product that includes this software MUST reproduce
+the attribution notice below, and must not claim that anyone other than D-Net
+Lab created it. See LICENSE Section 4.
+
+--------------------------------------------------------------------------------
+ATTRIBUTION
+--------------------------------------------------------------------------------
+
+Original author and maintainer:
+    D-Net Lab
+    https://lab.dnet.live
+
+Reproduce this, somewhere the people using your software can find it:
+
+    Powered by StreamAudio
+    Copyright (c) 2026 D-Net Lab -- https://lab.dnet.live
+
+A modified version must say so, and must not carry the unqualified name. For
+example: "MyProduct Speech, based on StreamAudio by D-Net Lab".
+
+--------------------------------------------------------------------------------
+VOICE MODELS
+--------------------------------------------------------------------------------
+
+Voice models are NOT part of this software and are NOT distributed with it. Each
+carries its own licence and its own training-data provenance, either of which
+may restrict commercial use or require separate attribution. See VOICES.md.
+
+--------------------------------------------------------------------------------
+THIRD-PARTY COMPONENTS
+--------------------------------------------------------------------------------
+
+StreamAudio depends on third-party software, each retaining its own licence and
+copyright. See THIRD-PARTY-LICENSES for the current inventory, regenerate with:
+
+    python tools/gen_licenses.py --project "StreamAudio" --requirements requirements.txt
+
+--------------------------------------------------------------------------------
+CONTRIBUTORS
+--------------------------------------------------------------------------------
+
+(Contributors may append their attribution here. Do not remove entries above.)
