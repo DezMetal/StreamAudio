@@ -188,6 +188,23 @@ class SpeechQueue:
     
     Key insight: While sentence N is playing, sentences N+1, N+2 are already processing.
     """
+
+    # How much speech to accumulate before running a conversion pass.
+    #
+    # This single number is what sets time-to-first-audio, and a flat 1.5s put
+    # a flat 1.5s of silence at the front of every reply -- on top of the wait
+    # for the sentence to finish generating. The text had streamed well past
+    # the point of the sentence before the first sound arrived, which is what
+    # made a fast model feel unresponsive rather than fast.
+    #
+    # So the first chunk is short and the rest are not. A small first pass gets
+    # her talking almost immediately; once audio is flowing the buffer grows to
+    # the efficient size, because from then on conversion is racing playback
+    # rather than the listener. Overlap context is unchanged, so continuity
+    # across the join is handled exactly as before.
+    FIRST_CHUNK_SECONDS = 0.35
+    FULL_CHUNK_SECONDS = 1.5
+
     def __init__(self, voice_instance, headless=False, num_workers=2):
         self.voice = voice_instance
         self.headless = headless
@@ -238,7 +255,8 @@ class SpeechQueue:
         
         # Cache audio settings
         self._sample_rate = self.voice.voice.config.sample_rate
-        self._max_accumulate_len = int(self._sample_rate * 1.5)
+        self._max_accumulate_len = int(self._sample_rate * self.FULL_CHUNK_SECONDS)
+        self._first_accumulate_len = int(self._sample_rate * self.FIRST_CHUNK_SECONDS)
         self._overlap_len = int(self._sample_rate * 0.3)
         
         # Start multiple worker threads for parallel processing
@@ -401,6 +419,12 @@ class SpeechQueue:
         buffer_len = 0
         last_context = np.array([], dtype=np.int16)
         rvc_enabled = self.voice.rvc_converter is not None and self.voice._rvc_ready
+        # Short first pass so she starts talking; full size thereafter. Only
+        # the leading chunk of the leading sentence is actually keeping anyone
+        # waiting -- after that, conversion is ahead of playback.
+        accumulate_target = (self._first_accumulate_len
+                             if seq_id == self._playback_sequence
+                             else self._max_accumulate_len)
         
         # Process TTS chunks and apply RVC incrementally
         for chunk in self.voice.voice.synthesize(text, synth_config):
@@ -414,13 +438,16 @@ class SpeechQueue:
             buffer_len += len(data)
             
             # When buffer is large enough, process through RVC and store
-            if buffer_len >= self._max_accumulate_len:
+            if buffer_len >= accumulate_target:
                 audio_out, last_context = self._process_buffer_chunk(
                     chunk_buffer, last_context, rvc_enabled
                 )
                 chunk_buffer = []
                 buffer_len = 0
-                
+                # Past the first pass the listener is no longer waiting on us,
+                # so take the larger, cheaper buffer from here on.
+                accumulate_target = self._max_accumulate_len
+
                 if audio_out is not None and len(audio_out) > 0:
                     with self._buffer_lock:
                         if seq_id in self.audio_buffers:
