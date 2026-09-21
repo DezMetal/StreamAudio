@@ -16,10 +16,13 @@ Requires:
 - vec-768-layer-12.onnx embedder model
 """
 
+import logging
 import os
 import numpy as np
 from typing import Optional
 import onnxruntime as ort
+
+logger = logging.getLogger("StreamAudio.rvc")
 
 
 class RVCOnnxConverter:
@@ -76,16 +79,16 @@ class RVCOnnxConverter:
         providers = self._get_providers(device)
         
         # Load models
-        print(f"Loading ONNX RVC model: {os.path.basename(model_path)}")
+        logger.info(f"Loading ONNX RVC model: {os.path.basename(model_path)}")
         self.session = ort.InferenceSession(model_path, providers=providers)
         
-        print(f"Loading embedder: {os.path.basename(embedder_path)}")
+        logger.info(f"Loading embedder: {os.path.basename(embedder_path)}")
         self.embedder = ort.InferenceSession(embedder_path, providers=providers)
         
         # Get model info
         self._analyze_model()
         
-        print(f"ONNX RVC ready (device: {device})")
+        logger.info(f"ONNX RVC ready (device: {device})")
     
     def _get_providers(self, device: str) -> list:
         """Get ONNX execution providers based on device."""
@@ -133,7 +136,7 @@ class RVCOnnxConverter:
         
         # Verify inputs
         if np.abs(audio_input).max() == 0:
-            print("[ERROR] Embedder input is SILENT!")
+            logger.error("[ERROR] Embedder input is SILENT!")
         
         # Run embedder
         input_name = list(self.embedder_inputs.keys())[0]
@@ -143,7 +146,7 @@ class RVCOnnxConverter:
         
         # Verify features
         if np.abs(features).max() == 0:
-            print("[ERROR] Embedder output is SILENT (Features are all zero)!")
+            logger.error("[ERROR] Embedder output is SILENT (Features are all zero)!")
         
         return features
     
@@ -236,9 +239,9 @@ class RVCOnnxConverter:
             
             output_name = list(self.model_outputs.keys())[0]
             _ = self.session.run([output_name], inputs)[0]
-            # print("ONNX RVC warmup complete")
+            logger.debug("ONNX RVC warmup complete")
         except Exception as e:
-            print(f"Warmup failed (non-critical): {e}")
+            logger.warning(f"Warmup failed (non-critical): {e}")
     
     def convert(self, audio_int16: np.ndarray, sample_rate: int = 22050) -> np.ndarray:
         """
@@ -326,8 +329,8 @@ class RVCOnnxConverter:
             # Debug print
             pitch_min, pitch_max = pitch_f.min(), pitch_f.max()
             pitch_mean = pitch_f.mean()
-            print(f"ONNX Pitch: min={pitch_min:.1f} max={pitch_max:.1f} mean={pitch_mean:.1f} voiced={(pitch_coarse>0).sum()}/{feat_len}")
-            print(f"ONNX inputs: feats={inputs['feats'].shape}, p_len={inputs['p_len']}, pitch={inputs['pitch'].shape}")
+            logger.debug(f"ONNX Pitch: min={pitch_min:.1f} max={pitch_max:.1f} mean={pitch_mean:.1f} voiced={(pitch_coarse>0).sum()}/{feat_len}")
+            logger.debug(f"ONNX inputs: feats={inputs['feats'].shape}, p_len={inputs['p_len']}, pitch={inputs['pitch'].shape}")
             
             # Run inference
             output_name = list(self.model_outputs.keys())[0]
@@ -335,12 +338,12 @@ class RVCOnnxConverter:
             
             # Process output
             audio_out = result.flatten()
-            print(f"ONNX output: {audio_out.shape}, range: [{audio_out.min():.3f}, {audio_out.max():.3f}]")
+            logger.debug(f"ONNX output: {audio_out.shape}, range: [{audio_out.min():.3f}, {audio_out.max():.3f}]")
             
         except Exception as e:
-            print(f"ONNX inference error: {e}")
-            print(f"Model inputs: {list(self.model_inputs.keys())}")
-            print(f"Model outputs: {list(self.model_outputs.keys())}")
+            logger.error(f"ONNX inference error: {e}")
+            logger.debug(f"Model inputs: {list(self.model_inputs.keys())}")
+            logger.debug(f"Model outputs: {list(self.model_outputs.keys())}")
             raise
         
         # Resample back to original rate
@@ -354,9 +357,9 @@ class RVCOnnxConverter:
         
         if out_max < 0.001:
             # CRITICAL ERROR: Output is essentially silent
-            print(f"[CRITICAL] RVC output is SILENT! Max: {out_max:.6f}")
-            print(f"  Input stats: min={np.abs(audio_float).min():.3f} max={np.abs(audio_float).max():.3f} mean={np.abs(audio_float).mean():.3f}")
-            print(f"  Feature stats: min={features.min():.3f} max={features.max():.3f} mean={features.mean():.3f}")
+            logger.error(f"[CRITICAL] RVC output is SILENT! Max: {out_max:.6f}")
+            logger.debug(f"  Input stats: min={np.abs(audio_float).min():.3f} max={np.abs(audio_float).max():.3f} mean={np.abs(audio_float).mean():.3f}")
+            logger.debug(f"  Feature stats: min={features.min():.3f} max={features.max():.3f} mean={features.mean():.3f}")
             # Return input audio as-is since RVC failed
             return audio_int16
         
@@ -365,7 +368,7 @@ class RVCOnnxConverter:
             # Target 0.5 peak (about 50% of maximum amplitude)
             gain = min(0.5 / out_max, 8.0)  # Allow up to 8x boost
             audio_out = audio_out * gain
-            print(f"[INFO] Boosted quiet RVC output by {gain:.2f}x (was {out_max:.3f})")
+            logger.debug(f"[INFO] Boosted quiet RVC output by {gain:.2f}x (was {out_max:.3f})")
         
         # Convert back to int16
         audio_out = np.clip(audio_out * 32768.0, -32768, 32767).astype(np.int16)

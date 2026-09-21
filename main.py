@@ -20,6 +20,7 @@ from random import choice, uniform, randint
 import json
 import os
 from perlin_noise import PerlinNoise
+import logging
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress
@@ -122,7 +123,7 @@ def _open_stream(sample_rate, channels, check_interrupted_callback=None):
         stream.start()
         yield stream
     except Exception as e:
-        print(e)
+        logger.error("%s", e)
         yield None
     finally:
         if 'stream' in locals() and stream:
@@ -130,6 +131,36 @@ def _open_stream(sample_rate, channels, check_interrupted_callback=None):
             stream.close()
 
 # --- CORE CLASSES ---
+
+_MARKUP = re.compile(r"\[/?(?:bold |dim )?(?:[a-z_]+)(?: [a-z_]+)*\]")
+logger = logging.getLogger("StreamAudio")
+
+
+def _level_for(text):
+    """What a rich-marked line means when there is no console to colour it."""
+    lowered = text.lower()
+    if "debug" in lowered:
+        return logging.DEBUG
+    if "[red" in lowered or "[bold red" in lowered or "critical" in lowered or "error" in lowered:
+        return logging.ERROR
+    if "[yellow" in lowered or "[bold yellow" in lowered or "warning" in lowered or "failed" in lowered:
+        return logging.WARNING
+    return logging.INFO
+
+
+def _say(console, headless, text, level=None):
+    """Console when there is one; the logging module when there is not.
+
+    Headless used to mean "some lines vanish and some print anyway", which is
+    how a host application ended up with pitch statistics on its terminal.
+    """
+    if not headless and console is not None:
+        console.print(text)
+        return
+    logger.log(level if level is not None else _level_for(text),
+               _MARKUP.sub("", text).strip())
+
+
 class DynamicsGenerator:
     def __init__(self, settings, seed=None):
         self.settings = settings
@@ -205,6 +236,9 @@ class SpeechQueue:
     FIRST_CHUNK_SECONDS = 0.35
     FULL_CHUNK_SECONDS = 1.5
 
+    def _say(self, text, level=None):
+        _say(getattr(self, "console", None), getattr(self, "headless", False), text, level)
+
     def __init__(self, voice_instance, headless=False, num_workers=2):
         self.voice = voice_instance
         self.headless = headless
@@ -269,8 +303,7 @@ class SpeechQueue:
         self._playback_thread = threading.Thread(target=self._playback_loop, daemon=True, name="SpeechQueue-Playback")
         self._playback_thread.start()
         
-        if not self.headless:
-            self.console.print(f"[green]✔ SpeechQueue started with {self.num_workers} workers[/green]")
+        self._say(f"[green]✔ SpeechQueue started with {self.num_workers} workers[/green]")
     
     def stop(self):
         """Stop all threads and clear queues."""
@@ -305,8 +338,7 @@ class SpeechQueue:
             self.audio_buffers.clear()
             self.audio_ready.clear()
             
-        if not self.headless:
-            self.console.print("[yellow]SpeechQueue stopped[/yellow]")
+        self._say("[yellow]SpeechQueue stopped[/yellow]")
     
     def enqueue(self, text: str):
         """
@@ -365,7 +397,7 @@ class SpeechQueue:
             self._playback_ready.notify_all()
 
         if not self.headless and dropped:
-            self.console.print(f"[yellow]SpeechQueue cleared ({dropped} pending)[/yellow]")
+            self._say(f"[yellow]SpeechQueue cleared ({dropped} pending)[/yellow]")
 
     def interrupt(self):
         """Interrupt current speech and clear all queues."""
@@ -399,8 +431,7 @@ class SpeechQueue:
             except queue.Empty:
                 continue
             except Exception as e:
-                if not self.headless:
-                    self.console.print(f"[red]Worker error: {e}[/red]")
+                self._say(f"[red]Worker error: {e}[/red]")
     
     def _process_sentence(self, seq_id: int, text: str):
         """
@@ -501,8 +532,7 @@ class SpeechQueue:
                     audio_out = rvc_output
                     
             except Exception as e:
-                if not self.headless:
-                    self.console.print(f"[yellow]RVC chunk failed: {e}[/yellow]")
+                self._say(f"[yellow]RVC chunk failed: {e}[/yellow]")
                 audio_out = raw_chunk
         
         # Save context for next chunk
@@ -569,8 +599,7 @@ class SpeechQueue:
                     self._playback_sequence += 1
                             
                 except Exception as e:
-                    if not self.headless:
-                        self.console.print(f"[red]Playback error: {e}[/red]")
+                    self._say(f"[red]Playback error: {e}[/red]")
         finally:
             if stream:
                 stream.stop()
@@ -626,8 +655,7 @@ class SpeechQueue:
                 converted_audio = self.voice.rvc_converter.convert(raw_audio, sample_rate)
                 return converted_audio
             except Exception as e:
-                if not self.headless:
-                    self.console.print(f"[yellow]RVC conversion failed in buffer: {e}[/yellow]")
+                self._say(f"[yellow]RVC conversion failed in buffer: {e}[/yellow]")
                 return raw_audio
         
         return raw_audio
@@ -704,12 +732,14 @@ class SpeechQueue:
             try:
                 final_audio = self.voice.rvc_converter.convert(final_audio, sample_rate)
             except Exception as e:
-                if not self.headless:
-                    self.console.print(f"[yellow]RVC conversion failed: {e}[/yellow]")
+                self._say(f"[yellow]RVC conversion failed: {e}[/yellow]")
         
         return final_audio
 
 class Voice:
+    def _say(self, text, level=None):
+        _say(getattr(self, "console", None), getattr(self, "headless", False), text, level)
+
     def __init__(self, settings_path="settings.json", headless=False):
         self.console = Console()
         self.headless = headless
@@ -718,17 +748,17 @@ class Voice:
             try:
                 with open(settings_path, 'r') as f:
                     self.settings = _update_settings(self.settings, json.load(f))
-                if not self.headless: self.console.print(f"[green]✔ Loaded settings from {settings_path}[/green]")
+                self._say(f"[green]✔ Loaded settings from {settings_path}[/green]")
             except Exception as e:
-                if not self.headless: self.console.print(f"[bold red]Error loading {settings_path}: {e}[/bold red]")
+                self._say(f"[bold red]Error loading {settings_path}: {e}[/bold red]")
         
         self.dynamics_generator = DynamicsGenerator(self.settings['dynamics'], seed=1) # Use a fixed seed for deterministic tests
         self._interrupted = False
         
-        if not self.headless: self.console.print("[cyan]Initializing TTS model...[/cyan]")
+        self._say("[cyan]Initializing TTS model...[/cyan]")
         start_time = time.time()
         self.voice = PiperVoice.load(self.settings['model_path'], self.settings['config_path'])
-        if not self.headless: self.console.print(f"[green]✔ Model loaded in {time.time() - start_time:.2f} seconds.[/green]")
+        self._say(f"[green]✔ Model loaded in {time.time() - start_time:.2f} seconds.[/green]")
         
         # RVC voice converter - initialized in background to avoid blocking startup
         self.rvc_converter = None
@@ -739,7 +769,7 @@ class Voice:
         
         # Start background RVC initialization if enabled
         if self._rvc_settings.get('enabled') and self._rvc_settings.get('model_path'):
-            if not self.headless: self.console.print("[cyan]RVC voice conversion enabled - loading in background...[/cyan]")
+            self._say("[cyan]RVC voice conversion enabled - loading in background...[/cyan]")
             self._rvc_init_thread = threading.Thread(target=self._init_rvc_background, daemon=True)
             self._rvc_init_thread.start()
     
@@ -786,19 +816,19 @@ class Voice:
             
             # RVC is designed for real-time voice conversion - ready once loaded
             # Model stays "warm" (loaded) and becomes "hot" when TTS triggers
-            if not self.headless: self.console.print("[cyan]RVC model loaded and ready[/cyan]")
+            self._say("[cyan]RVC model loaded and ready[/cyan]")
             
             
             load_time = time.time() - rvc_start
             self._rvc_ready = True
-            if not self.headless: self.console.print(f"[green]✔ RVC converter ready in {load_time:.2f} seconds.[/green]")
+            self._say(f"[green]✔ RVC converter ready in {load_time:.2f} seconds.[/green]")
             
             # Notify via callback
             if self._rvc_ready_callback:
                 self._rvc_ready_callback(True, f"RVC voice conversion ready ({load_time:.1f}s)")
         except Exception as e:
             self._rvc_ready = True  # Mark as "done" even on failure to prevent waiting forever
-            if not self.headless: self.console.print(f"[bold yellow]⚠ RVC initialization failed: {e}[/bold yellow]")
+            self._say(f"[bold yellow]⚠ RVC initialization failed: {e}[/bold yellow]")
             self.rvc_converter = None
             
             # Notify via callback
@@ -826,7 +856,7 @@ class Voice:
         sample_rate = self.voice.config.sample_rate
         channels = 1
         
-        if not self.headless: self.console.print(f"[cyan]DEBUG: say_fast called for: '{text[:20]}...'[/cyan]")
+        self._say(f"[cyan]DEBUG: say_fast called for: '{text[:20]}...'[/cyan]")
         
         # Buffer for chunked processing
         chunk_buffer = []
@@ -844,12 +874,12 @@ class Voice:
                 st = stream
             
             if st is None:
-                if not self.headless: self.console.print("[bold red]CRITICAL: Stream init FAILED (st is None)[/bold red]")
+                self._say("[bold red]CRITICAL: Stream init FAILED (st is None)[/bold red]")
                 return
             else:
-                if not self.headless: self.console.print("[green]DEBUG: Stream opened successfully[/green]")
+                self._say("[green]DEBUG: Stream opened successfully[/green]")
         except Exception as e:
-            if not self.headless: self.console.print(f"[bold red]CRITICAL: Stream init Exception: {e}[/bold red]")
+            self._say(f"[bold red]CRITICAL: Stream init Exception: {e}[/bold red]")
             return
 
         try:
@@ -863,12 +893,12 @@ class Voice:
             synth_config.noise_scale = piper_settings.get('noise_scale', 0.667)
             synth_config.noise_w = piper_settings.get('noise_w', 0.8)
             
-            if not self.headless: self.console.print("[cyan]DEBUG: Starting Piper synthesis loop...[/cyan]")
+            self._say("[cyan]DEBUG: Starting Piper synthesis loop...[/cyan]")
             chunk_count = 0
             
             for chunk in self.voice.synthesize(text, synth_config):
                 if self._interrupted:
-                    if not self.headless: self.console.print("[yellow]DEBUG: Interrupted in synth loop[/yellow]")
+                    self._say("[yellow]DEBUG: Interrupted in synth loop[/yellow]")
                     break
                 
                 chunk_count += 1
@@ -878,7 +908,7 @@ class Voice:
                 
                 # Check if we should process
                 if buffer_len >= max_accumulate_len:
-                    if not self.headless: self.console.print(f"[cyan]DEBUG: Flushing buffer (len={buffer_len})[/cyan]")
+                    self._say(f"[cyan]DEBUG: Flushing buffer (len={buffer_len})[/cyan]")
                     
                     # Flatten current buffer - PROCESS AS ONE PIECE
                     full_buffer = np.concatenate(chunk_buffer)
@@ -905,12 +935,10 @@ class Voice:
                             out_max = np.abs(rvc_output).max()
                             ratio = out_max / (in_max + 1e-6)
                             
-                            if not self.headless: 
-                                self.console.print(f"[cyan]DEBUG: Chunk Amp In={in_max} Out={out_max} Ratio={ratio:.2f}[/cyan]")
+                            self._say(f"[cyan]DEBUG: Chunk Amp In={in_max} Out={out_max} Ratio={ratio:.2f}[/cyan]")
                             
                             if out_max < 500 or (in_max > 1000 and ratio < 0.1):
-                                 if not self.headless:
-                                     self.console.print(f"[red]WARNING: RVC Low Output (Max={out_max}). Playing anyway.[/red]")
+                                 self._say(f"[red]WARNING: RVC Low Output (Max={out_max}). Playing anyway.[/red]")
                             
                             # Trim Context from Output
                             if len(last_context) > 0:
@@ -923,8 +951,7 @@ class Voice:
                                 audio_out = rvc_output
 
                         except Exception as e:
-                            if not self.headless:
-                                self.console.print(f"[yellow]RVC chunk failed: {e}[/yellow]")
+                            self._say(f"[yellow]RVC chunk failed: {e}[/yellow]")
                             audio_out = raw_chunk
                     
                     # Save context (raw) for next
@@ -934,7 +961,7 @@ class Voice:
                     if st and len(audio_out) > 0:
                         st.write(audio_out)
             
-            if not self.headless: self.console.print(f"[cyan]DEBUG: Piper loop finished. Chunks: {chunk_count}. Buffer remnant: {buffer_len}[/cyan]")
+            self._say(f"[cyan]DEBUG: Piper loop finished. Chunks: {chunk_count}. Buffer remnant: {buffer_len}[/cyan]")
             
             # Process remaining buffer
             if chunk_buffer and not self._interrupted:
@@ -956,11 +983,10 @@ class Voice:
                         out_max = np.abs(rvc_output).max()
                         ratio = out_max / (in_max + 1e-6)
                         
-                        if not self.headless: 
-                            self.console.print(f"[cyan]DEBUG: Final Chunk Amp In={in_max} Out={out_max} Ratio={ratio:.2f}[/cyan]")
+                        self._say(f"[cyan]DEBUG: Final Chunk Amp In={in_max} Out={out_max} Ratio={ratio:.2f}[/cyan]")
                         
                         if out_max < 500 or (in_max > 1000 and ratio < 0.1):
-                             if not self.headless: self.console.print(f"[red]WARNING: RVC Low Output (Final) (Max={out_max}). Playing anyway.[/red]")
+                             self._say(f"[red]WARNING: RVC Low Output (Final) (Max={out_max}). Playing anyway.[/red]")
                              
                         # Trim Context from Output
                         if len(last_context) > 0:
@@ -972,18 +998,18 @@ class Voice:
                         else:
                             audio_out = rvc_output
                     except Exception as e:
-                        print(f"RVC remaining failed: {e}")
+                        self._say(f"[yellow]RVC remaining failed: {e}[/yellow]")
                         audio_out = raw_chunk
                 
                 if st and len(audio_out) > 0:
                     st.write(audio_out)
             
-            if not self.headless: self.console.print("[green]DEBUG: say_fast FINISHED completely[/green]")
+            self._say("[green]DEBUG: say_fast FINISHED completely[/green]")
                     
         finally:
             if hasattr(stream, '__exit__'):
                 stream.__exit__(None, None, None)
-            if not self.headless: self.console.print("[cyan]DEBUG: Stream Closed[/cyan]")
+            self._say("[cyan]DEBUG: Stream Closed[/cyan]")
                     
 
 
@@ -1041,14 +1067,14 @@ class Voice:
                     with open(filepath, 'r', encoding='utf-8') as f:
                         return f.read()
                 except Exception as e:
-                    self.console.print(f"[bold red]Error reading file {filepath}: {e}[/bold red]")
+                    self._say(f"[bold red]Error reading file {filepath}: {e}[/bold red]")
                     return ""
             return ""
         text = re.sub(file_pattern, _replace_file_tag, text, flags=re.IGNORECASE)
 
         processed_text = self.dynamics_generator.process(text)
         if not self.headless:
-            self.console.print("\n---")
+            self._say("\n---")
             self.console.print(Syntax(processed_text, "ssml", theme="monokai", line_numbers=False))
         
         tag_regex = r'(\[pause=\d+\]|\[scale=[\d.]+\]|\[pitch=[\d.-]+\]|\[noise_scale=[\d.]+\]|\[noise_w=[\d.]+\])'
@@ -1083,7 +1109,7 @@ class Voice:
                 
                 for part in parts:
                     if self._interrupted:
-                        if not self.headless: self.console.print("[yellow]Speech interrupted.[/yellow]")
+                        self._say("[yellow]Speech interrupted.[/yellow]")
                         break
                         
                     if not self.headless: progress.advance(task)
@@ -1119,21 +1145,21 @@ class Voice:
                         if stream_during_synthesis and st: st.write(final_part_audio)
                         all_audio_data.append(final_part_audio)
         
-        if not self.headless: self.console.print("---")
+        self._say("---")
         final_audio = np.concatenate(all_audio_data) if all_audio_data else np.array([], dtype=np.int16)
         
         # Apply RVC voice conversion if enabled
         if self.rvc_converter is not None and len(final_audio) > 0 and not self._interrupted:
-            if not self.headless: self.console.print("[cyan]Applying RVC voice conversion...[/cyan]")
+            self._say("[cyan]Applying RVC voice conversion...[/cyan]")
             try:
                 final_audio = self.rvc_converter.convert(final_audio, sample_rate)
-                if not self.headless: self.console.print("[OK] RVC conversion complete.")
+                self._say("[OK] RVC conversion complete.")
             except Exception as e:
-                if not self.headless: self.console.print(f"[bold yellow]RVC conversion failed: {e}[/bold yellow]")
+                self._say(f"[bold yellow]RVC conversion failed: {e}[/bold yellow]")
         
         # Play audio after RVC conversion (if RVC was enabled and speak is on)
         if rvc_enabled and speak_flag and len(final_audio) > 0 and not self._interrupted:
-            if not self.headless: self.console.print("[cyan]Playing converted audio...[/cyan]")
+            self._say("[cyan]Playing converted audio...[/cyan]")
             with _open_stream(sample_rate, channels, check_interrupt) as st:
                 if st:
                     st.write(final_audio)
@@ -1142,7 +1168,7 @@ class Voice:
                 with wave.open(save_path_flag, 'wb') as wf:
                     wf.setnchannels(channels); wf.setsampwidth(2); wf.setframerate(sample_rate)
                     wf.writeframes(final_audio.tobytes())
-                self.console.print(f"[bold green]Audio saved to {save_path_flag}[/bold green]")
+                self._say(f"[bold green]Audio saved to {save_path_flag}[/bold green]")
 
         if return_bytes_flag and not self._interrupted:
             return self._write_wav_to_buffer(final_audio, sample_rate, channels)
