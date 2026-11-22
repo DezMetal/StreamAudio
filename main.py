@@ -130,6 +130,64 @@ def _open_stream(sample_rate, channels, check_interrupted_callback=None):
             stream.stop()
             stream.close()
 
+# How much speech to accumulate before running a conversion pass.
+#
+# This single number sets time-to-first-audio, and a flat 1.5s put a flat 1.5s
+# of silence at the front of every utterance -- on top of the wait for the text
+# to finish generating. So the leading chunk is short and the rest are not: a
+# small first pass gets her talking almost immediately, and once audio is
+# flowing the buffer grows back to the efficient size, because from then on
+# conversion is racing playback rather than the listener.
+#
+# Module level because there were two copies of these numbers and the chunking
+# that reads them, one of which (SpeechQueue) nothing in the lab plays through.
+FIRST_CHUNK_SECONDS = 0.35
+FULL_CHUNK_SECONDS = 1.5
+OVERLAP_SECONDS = 0.3
+
+
+def _rvc_pass(converter, raw_chunk, last_context, sample_rate, overlap_len, say):
+    """Convert one chunk through RVC, carrying overlap context across the join.
+
+    One implementation, because there were three -- two copied inside say_fast
+    and one in SpeechQueue -- and a change to the context handling in any of
+    them left the other two as they were.
+
+    Returns the audio to play and the context to carry into the next chunk.
+    """
+    audio_out = raw_chunk
+    if converter is not None:
+        try:
+            if len(last_context) > 0:
+                rvc_input = np.concatenate([last_context, raw_chunk])
+            else:
+                rvc_input = raw_chunk
+
+            rvc_output = converter.convert(rvc_input, sample_rate)
+
+            # Reported, never acted on: a quiet conversion is still her voice,
+            # and falling back to the unconverted chunk changes who is speaking
+            # mid-sentence.
+            in_max = int(np.abs(rvc_input).max()) if len(rvc_input) else 0
+            out_max = int(np.abs(rvc_output).max()) if len(rvc_output) else 0
+            ratio = out_max / (in_max + 1e-6)
+            say(f"[cyan]DEBUG: Chunk Amp In={in_max} Out={out_max} Ratio={ratio:.2f}[/cyan]")
+            if out_max < 500 or (in_max > 1000 and ratio < 0.1):
+                say(f"[red]WARNING: RVC Low Output (Max={out_max}). Playing anyway.[/red]")
+
+            trim_len = len(last_context)
+            if 0 < trim_len < len(rvc_output):
+                audio_out = rvc_output[trim_len:]
+            else:
+                audio_out = rvc_output
+        except Exception as e:
+            say(f"[yellow]RVC chunk failed: {e}[/yellow]")
+            audio_out = raw_chunk
+
+    new_context = raw_chunk[-overlap_len:] if len(raw_chunk) > overlap_len else raw_chunk
+    return audio_out, new_context
+
+
 # --- CORE CLASSES ---
 
 _MARKUP = re.compile(r"\[/?(?:bold |dim )?(?:[a-z_]+)(?: [a-z_]+)*\]")
@@ -220,21 +278,11 @@ class SpeechQueue:
     Key insight: While sentence N is playing, sentences N+1, N+2 are already processing.
     """
 
-    # How much speech to accumulate before running a conversion pass.
-    #
-    # This single number is what sets time-to-first-audio, and a flat 1.5s put
-    # a flat 1.5s of silence at the front of every reply -- on top of the wait
-    # for the sentence to finish generating. The text had streamed well past
-    # the point of the sentence before the first sound arrived, which is what
-    # made a fast model feel unresponsive rather than fast.
-    #
-    # So the first chunk is short and the rest are not. A small first pass gets
-    # her talking almost immediately; once audio is flowing the buffer grows to
-    # the efficient size, because from then on conversion is racing playback
-    # rather than the listener. Overlap context is unchanged, so continuity
-    # across the join is handled exactly as before.
-    FIRST_CHUNK_SECONDS = 0.35
-    FULL_CHUNK_SECONDS = 1.5
+    # The chunk sizes live at module level, where say_fast reads the same two
+    # numbers. Kept as class attributes because external callers read them off
+    # the instance.
+    FIRST_CHUNK_SECONDS = FIRST_CHUNK_SECONDS
+    FULL_CHUNK_SECONDS = FULL_CHUNK_SECONDS
 
     def _say(self, text, level=None):
         _say(getattr(self, "console", None), getattr(self, "headless", False), text, level)
@@ -508,36 +556,14 @@ class SpeechQueue:
     
     def _process_buffer_chunk(self, chunk_buffer, last_context, rvc_enabled):
         """Process a buffer chunk through RVC and return audio output."""
-        raw_chunk = np.concatenate(chunk_buffer)
-        audio_out = raw_chunk
-        
-        if rvc_enabled:
-            try:
-                # Add context for RVC continuity
-                if len(last_context) > 0:
-                    rvc_input = np.concatenate([last_context, raw_chunk])
-                else:
-                    rvc_input = raw_chunk
-                
-                rvc_output = self.voice.rvc_converter.convert(rvc_input, self._sample_rate)
-                
-                # Trim context from output
-                if len(last_context) > 0:
-                    trim_len = len(last_context)
-                    if trim_len < len(rvc_output):
-                        audio_out = rvc_output[trim_len:]
-                    else:
-                        audio_out = rvc_output
-                else:
-                    audio_out = rvc_output
-                    
-            except Exception as e:
-                self._say(f"[yellow]RVC chunk failed: {e}[/yellow]")
-                audio_out = raw_chunk
-        
-        # Save context for next chunk
-        new_context = raw_chunk[-self._overlap_len:] if len(raw_chunk) > self._overlap_len else raw_chunk
-        return audio_out, new_context
+        return _rvc_pass(
+            self.voice.rvc_converter if rvc_enabled else None,
+            np.concatenate(chunk_buffer),
+            last_context,
+            self._sample_rate,
+            self._overlap_len,
+            self._say,
+        )
     
     def _playback_loop(self):
         """Background thread that plays audio in sequence order."""
@@ -844,27 +870,45 @@ class Voice:
         # Logic to clear buffer if needed, though the loop break handles most
     
     def say_fast(self, text: str) -> None:
-        """
-        Fast-path TTS with RVC. Bypasses dynamics processing for minimal latency.
-        Streams audio in chunks to reduce initial wait time.
+        """Fast-path TTS with RVC: she starts talking at once and does not stop.
+
+        Two things used to put silence into every reply, and both were about
+        WHEN the work happened rather than how much of it there was.
+
+        A flat 1.5s of speech was accumulated before the first conversion pass,
+        so the front of every utterance was 1.5s of nothing -- measured, and on
+        top of the wait for the text itself.
+
+        Worse, conversion and playback shared this thread. `st.write()` blocks
+        until the device has taken the audio, so piper and RVC for chunk N+1
+        did not begin until chunk N had finished playing: every join cost a
+        full conversion in silence. Piper yields a chunk per sentence, which is
+        why it was heard as a delay at punctuation.
+
+        So the leading chunk is short and the rest grow back to the efficient
+        size, and playback runs on its own thread fed by a queue -- chunk N is
+        in the speakers while chunk N+1 is being made. Overlap context across
+        the join is unchanged.
         """
         self._interrupted = False
-        
+
         if not text.strip():
             return
-        
+
         sample_rate = self.voice.config.sample_rate
         channels = 1
-        
+
         self._say(f"[cyan]DEBUG: say_fast called for: '{text[:20]}...'[/cyan]")
-        
-        # Buffer for chunked processing
+
         chunk_buffer = []
         buffer_len = 0
-        max_accumulate_len = int(sample_rate * 1.5)  # Max buffer size before forced flush
-        overlap_len = int(sample_rate * 0.3)         # 0.3 seconds overlap
+        overlap_len = int(sample_rate * OVERLAP_SECONDS)
+        full_target = int(sample_rate * FULL_CHUNK_SECONDS)
+        # Only the chunk someone is actually waiting on needs to be small.
+        accumulate_target = int(sample_rate * FIRST_CHUNK_SECONDS)
         last_context = np.array([], dtype=np.int16)
-        
+        converter = self.rvc_converter if self._rvc_ready else None
+
         # Open stream once
         try:
             stream = _open_stream(sample_rate, channels)
@@ -872,7 +916,7 @@ class Voice:
                 st = stream.__enter__()
             else:
                 st = stream
-            
+
             if st is None:
                 self._say("[bold red]CRITICAL: Stream init FAILED (st is None)[/bold red]")
                 return
@@ -882,9 +926,32 @@ class Voice:
             self._say(f"[bold red]CRITICAL: Stream init Exception: {e}[/bold red]")
             return
 
+        # Unbounded on purpose: a bound would make the producer wait on the
+        # speakers again, which is the gap this exists to close. Production is
+        # slower than playback, so the queue holds a chunk or two.
+        play_q = queue.Queue()
+
+        def _drain():
+            while True:
+                piece = play_q.get()
+                if piece is None:
+                    return
+                # Keep draining after an interrupt rather than returning, so
+                # the producer never blocks on a reader that has gone away.
+                if self._interrupted:
+                    continue
+                try:
+                    if len(piece) > 0:
+                        st.write(piece)
+                except Exception as e:
+                    self._say(f"[yellow]Playback failed: {e}[/yellow]")
+
+        player = threading.Thread(target=_drain, daemon=True, name="say_fast-playback")
+        player.start()
+
         try:
             synth_config = SynthesisConfig()
-            
+
             # Apply Piper settings from config
             piper_settings = self.settings.get('stream_audio', {}).get('piper', {})
             speed = piper_settings.get('speed', 1.0)
@@ -892,125 +959,52 @@ class Voice:
                 synth_config.length_scale = 1.0 / speed
             synth_config.noise_scale = piper_settings.get('noise_scale', 0.667)
             synth_config.noise_w = piper_settings.get('noise_w', 0.8)
-            
+
             self._say("[cyan]DEBUG: Starting Piper synthesis loop...[/cyan]")
             chunk_count = 0
-            
+
             for chunk in self.voice.synthesize(text, synth_config):
                 if self._interrupted:
                     self._say("[yellow]DEBUG: Interrupted in synth loop[/yellow]")
                     break
-                
+
                 chunk_count += 1
                 data = np.frombuffer(chunk.audio_int16_bytes, dtype=np.int16)
                 chunk_buffer.append(data)
                 buffer_len += len(data)
-                
-                # Check if we should process
-                if buffer_len >= max_accumulate_len:
-                    self._say(f"[cyan]DEBUG: Flushing buffer (len={buffer_len})[/cyan]")
-                    
-                    # Flatten current buffer - PROCESS AS ONE PIECE
-                    full_buffer = np.concatenate(chunk_buffer)
-                    chunk_buffer = [] # Clear buffer list
-                    buffer_len = 0
-                    
-                    # Prepare Chunk
-                    raw_chunk = full_buffer
-                    audio_out = raw_chunk # Default Fallback
-                    
-                    if self.rvc_converter is not None and self._rvc_ready:
-                        try:
-                            # Prepare input with context
-                            if len(last_context) > 0:
-                                rvc_input = np.concatenate([last_context, raw_chunk])
-                            else:
-                                rvc_input = raw_chunk
-                            
-                            # Convert
-                            rvc_output = self.rvc_converter.convert(rvc_input, sample_rate)
-                            
-                            # Log but DO NOT FALLBACK (User Request)
-                            in_max = np.abs(rvc_input).max()
-                            out_max = np.abs(rvc_output).max()
-                            ratio = out_max / (in_max + 1e-6)
-                            
-                            self._say(f"[cyan]DEBUG: Chunk Amp In={in_max} Out={out_max} Ratio={ratio:.2f}[/cyan]")
-                            
-                            if out_max < 500 or (in_max > 1000 and ratio < 0.1):
-                                 self._say(f"[red]WARNING: RVC Low Output (Max={out_max}). Playing anyway.[/red]")
-                            
-                            # Trim Context from Output
-                            if len(last_context) > 0:
-                                trim_len = len(last_context)
-                                if trim_len < len(rvc_output):
-                                    audio_out = rvc_output[trim_len:]
-                                else:
-                                    audio_out = rvc_output
-                            else:
-                                audio_out = rvc_output
 
-                        except Exception as e:
-                            self._say(f"[yellow]RVC chunk failed: {e}[/yellow]")
-                            audio_out = raw_chunk
-                    
-                    # Save context (raw) for next
-                    last_context = raw_chunk[-overlap_len:] if len(raw_chunk) > overlap_len else raw_chunk
-                    
-                    # Play
-                    if st and len(audio_out) > 0:
-                        st.write(audio_out)
-            
+                if buffer_len >= accumulate_target:
+                    self._say(f"[cyan]DEBUG: Flushing buffer (len={buffer_len})[/cyan]")
+                    audio_out, last_context = _rvc_pass(
+                        converter, np.concatenate(chunk_buffer), last_context,
+                        sample_rate, overlap_len, self._say,
+                    )
+                    chunk_buffer = []
+                    buffer_len = 0
+                    # Past the first pass the listener is no longer waiting on
+                    # us, so take the larger, cheaper buffer from here on.
+                    accumulate_target = full_target
+                    play_q.put(audio_out)
+
             self._say(f"[cyan]DEBUG: Piper loop finished. Chunks: {chunk_count}. Buffer remnant: {buffer_len}[/cyan]")
-            
+
             # Process remaining buffer
             if chunk_buffer and not self._interrupted:
-                raw_chunk = np.concatenate(chunk_buffer)
-                audio_out = raw_chunk
-                
-                if self.rvc_converter is not None and self._rvc_ready:
-                    try:
-                         # Prepare input with context
-                        if len(last_context) > 0:
-                            rvc_input = np.concatenate([last_context, raw_chunk])
-                        else:
-                            rvc_input = raw_chunk
-                        
-                        rvc_output = self.rvc_converter.convert(rvc_input, sample_rate)
-                        
-                        # Log but DO NOT FALLBACK (User Request)
-                        in_max = np.abs(rvc_input).max()
-                        out_max = np.abs(rvc_output).max()
-                        ratio = out_max / (in_max + 1e-6)
-                        
-                        self._say(f"[cyan]DEBUG: Final Chunk Amp In={in_max} Out={out_max} Ratio={ratio:.2f}[/cyan]")
-                        
-                        if out_max < 500 or (in_max > 1000 and ratio < 0.1):
-                             self._say(f"[red]WARNING: RVC Low Output (Final) (Max={out_max}). Playing anyway.[/red]")
-                             
-                        # Trim Context from Output
-                        if len(last_context) > 0:
-                            trim_len = len(last_context)
-                            if trim_len < len(rvc_output):
-                                audio_out = rvc_output[trim_len:]
-                            else:
-                                audio_out = rvc_output
-                        else:
-                            audio_out = rvc_output
-                    except Exception as e:
-                        self._say(f"[yellow]RVC remaining failed: {e}[/yellow]")
-                        audio_out = raw_chunk
-                
-                if st and len(audio_out) > 0:
-                    st.write(audio_out)
-            
-            self._say("[green]DEBUG: say_fast FINISHED completely[/green]")
-                    
+                audio_out, last_context = _rvc_pass(
+                    converter, np.concatenate(chunk_buffer), last_context,
+                    sample_rate, overlap_len, self._say,
+                )
+                play_q.put(audio_out)
+
+            self._say("[green]DEBUG: say_fast synthesis FINISHED completely[/green]")
+
         finally:
+            # The stream cannot close until the last chunk has been written.
+            play_q.put(None)
+            player.join()
             if hasattr(stream, '__exit__'):
                 stream.__exit__(None, None, None)
             self._say("[cyan]DEBUG: Stream Closed[/cyan]")
-                    
 
 
     def _write_wav_to_buffer(self, audio_data, sample_rate, channels=1):
