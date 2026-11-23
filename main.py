@@ -116,28 +116,30 @@ if "rvc" in DEFAULT_SETTINGS and DEFAULT_SETTINGS["rvc"].get("index_path"):
 
 
 
-@contextmanager
-def _open_stream(sample_rate, channels, check_interrupted_callback=None):
-    try:
-        stream = sd.OutputStream(samplerate=sample_rate, channels=channels, dtype='int16')
-        stream.start()
-        yield stream
-    except Exception as e:
-        logger.error("%s", e)
-        yield None
-    finally:
-        if 'stream' in locals() and stream:
-            stream.stop()
-            stream.close()
+# How long the output device stays open after she has stopped talking.
+#
+# Opening it is not free, and it was being opened and closed per call: a reply
+# streamed as several fragments paid that setup once per fragment, at the front
+# of each one, where it is heard. But the daemon stays hot between calls, so
+# holding the device for the life of the process would mean holding it through
+# hours of silence. So it is kept while she is talking and released once she
+# has stopped -- armed by a timer that the next utterance cancels, never a loop
+# watching for silence.
+IDLE_STREAM_SECONDS = 20.0
 
 # How much speech to accumulate before running a conversion pass.
 #
-# This single number sets time-to-first-audio, and a flat 1.5s put a flat 1.5s
-# of silence at the front of every utterance -- on top of the wait for the text
-# to finish generating. So the leading chunk is short and the rest are not: a
-# small first pass gets her talking almost immediately, and once audio is
-# flowing the buffer grows back to the efficient size, because from then on
+# Piper yields ONE CHUNK PER SENTENCE, and the target is only tested after a
+# whole chunk has arrived, so this can never make the leading audio shorter
+# than the first sentence. What it does is decide how many SENTENCES are held
+# before anything is converted: at 1.5s a short opening sentence waited for the
+# second, and sometimes the third, before a sound came out. The leading target
+# is therefore small enough to always flush on the first sentence, and grows
+# back to the efficient size once audio is flowing, because from then on
 # conversion is racing playback rather than the listener.
+#
+# Sub-sentence streaming would need piper to yield mid-sentence, which it does
+# not; nothing here can start her talking before her first sentence exists.
 #
 # Module level because there were two copies of these numbers and the chunking
 # that reads them, one of which (SpeechQueue) nothing in the lab plays through.
@@ -780,7 +782,14 @@ class Voice:
         
         self.dynamics_generator = DynamicsGenerator(self.settings['dynamics'], seed=1) # Use a fixed seed for deterministic tests
         self._interrupted = False
-        
+
+        # The one output stream, held between utterances. See IDLE_STREAM_SECONDS.
+        self._stream = None
+        self._stream_spec = None
+        self._stream_users = 0
+        self._stream_idle_timer = None
+        self._stream_lock = threading.Lock()
+
         self._say("[cyan]Initializing TTS model...[/cyan]")
         start_time = time.time()
         self.voice = PiperVoice.load(self.settings['model_path'], self.settings['config_path'])
@@ -865,19 +874,106 @@ class Voice:
         self.dynamics_generator.reset()
     
     def stop(self):
-        """Signals the current speech to stop."""
+        """Signals the current speech to stop.
+
+        The device is held open between utterances now, so stopping has to
+        discard what is already sitting in it. Letting it drain would play out
+        the rest of the sentence she was told to abandon, and the next
+        utterance would start queued behind it.
+        """
         self._interrupted = True
-        # Logic to clear buffer if needed, though the loop break handles most
-    
+        with self._stream_lock:
+            if self._stream is not None:
+                try:
+                    self._stream.abort()
+                except Exception as e:
+                    logger.debug("Aborting the output stream: %s", e)
+
+    @contextmanager
+    def _speaking_stream(self, sample_rate, channels=1):
+        """The one output stream, opened on demand and held while she talks.
+
+        Yields None when the device cannot be opened, as the per-call opener
+        this replaced did, so every caller keeps its own failure path.
+        """
+        st = self._acquire_stream(sample_rate, channels)
+        try:
+            yield st
+        finally:
+            self._release_stream()
+
+    def _acquire_stream(self, sample_rate, channels):
+        with self._stream_lock:
+            if self._stream_idle_timer is not None:
+                self._stream_idle_timer.cancel()
+                self._stream_idle_timer = None
+
+            # A different voice or sample rate cannot ride the open stream.
+            if self._stream is not None and self._stream_spec != (sample_rate, channels):
+                self._close_stream_locked()
+
+            if self._stream is None:
+                try:
+                    stream = sd.OutputStream(samplerate=sample_rate, channels=channels, dtype='int16')
+                    stream.start()
+                    self._stream = stream
+                    self._stream_spec = (sample_rate, channels)
+                except Exception as e:
+                    logger.error("%s", e)
+                    self._stream = None
+                    self._stream_spec = None
+            elif not self._stream.active:
+                # Aborted by stop(), or stopped because the device went away.
+                try:
+                    self._stream.start()
+                except Exception as e:
+                    logger.error("%s", e)
+                    self._close_stream_locked()
+
+            if self._stream is not None:
+                self._stream_users += 1
+            return self._stream
+
+    def _release_stream(self):
+        with self._stream_lock:
+            self._stream_users = max(0, self._stream_users - 1)
+            if self._stream_users or self._stream is None:
+                return
+            self._stream_idle_timer = threading.Timer(IDLE_STREAM_SECONDS, self._close_stream)
+            self._stream_idle_timer.daemon = True
+            self._stream_idle_timer.start()
+
+    def _close_stream(self):
+        with self._stream_lock:
+            # Somebody started speaking between the timer firing and this
+            # taking the lock.
+            if self._stream_users:
+                return
+            self._close_stream_locked()
+
+    def _close_stream_locked(self):
+        self._stream_idle_timer = None
+        stream, self._stream, self._stream_spec = self._stream, None, None
+        if stream is None:
+            return
+        try:
+            stream.stop()
+            stream.close()
+        except Exception as e:
+            logger.debug("Closing the output stream: %s", e)
+
+
     def say_fast(self, text: str) -> None:
         """Fast-path TTS with RVC: she starts talking at once and does not stop.
 
         Two things used to put silence into every reply, and both were about
         WHEN the work happened rather than how much of it there was.
 
-        A flat 1.5s of speech was accumulated before the first conversion pass,
-        so the front of every utterance was 1.5s of nothing -- measured, and on
-        top of the wait for the text itself.
+        1.5s of speech was accumulated before the first conversion pass. Piper
+        yields a chunk per sentence, so that did not slice a sentence finer --
+        it waited for a SECOND sentence, and often a third, before converting
+        anything. A short opening line went unheard until the one after it had
+        been synthesized too.
 
         Worse, conversion and playback shared this thread. `st.write()` blocks
         until the device has taken the audio, so piper and RVC for chunk N+1
@@ -885,10 +981,12 @@ class Voice:
         full conversion in silence. Piper yields a chunk per sentence, which is
         why it was heard as a delay at punctuation.
 
-        So the leading chunk is short and the rest grow back to the efficient
-        size, and playback runs on its own thread fed by a queue -- chunk N is
-        in the speakers while chunk N+1 is being made. Overlap context across
-        the join is unchanged.
+        So the first sentence is flushed on its own and the chunks after it
+        grow back to the efficient size, and playback runs on its own thread
+        fed by a queue -- chunk N is in the speakers while chunk N+1 is being
+        made. Overlap context across the join is unchanged.
+
+        The device itself is no longer opened per call; see IDLE_STREAM_SECONDS.
         """
         self._interrupted = False
 
@@ -909,22 +1007,19 @@ class Voice:
         last_context = np.array([], dtype=np.int16)
         converter = self.rvc_converter if self._rvc_ready else None
 
-        # Open stream once
+        # The shared stream: already open if she spoke a moment ago, which is
+        # the common case for a reply arriving as several fragments.
+        stream_ctx = self._speaking_stream(sample_rate, channels)
         try:
-            stream = _open_stream(sample_rate, channels)
-            if hasattr(stream, '__enter__'):
-                st = stream.__enter__()
-            else:
-                st = stream
-
-            if st is None:
-                self._say("[bold red]CRITICAL: Stream init FAILED (st is None)[/bold red]")
-                return
-            else:
-                self._say("[green]DEBUG: Stream opened successfully[/green]")
+            st = stream_ctx.__enter__()
         except Exception as e:
             self._say(f"[bold red]CRITICAL: Stream init Exception: {e}[/bold red]")
             return
+        if st is None:
+            self._say("[bold red]CRITICAL: Stream init FAILED (st is None)[/bold red]")
+            stream_ctx.__exit__(None, None, None)
+            return
+        self._say("[green]DEBUG: Stream ready[/green]")
 
         # Unbounded on purpose: a bound would make the producer wait on the
         # speakers again, which is the gap this exists to close. Production is
@@ -999,12 +1094,11 @@ class Voice:
             self._say("[green]DEBUG: say_fast synthesis FINISHED completely[/green]")
 
         finally:
-            # The stream cannot close until the last chunk has been written.
+            # The stream cannot be released until the last chunk is written.
             play_q.put(None)
             player.join()
-            if hasattr(stream, '__exit__'):
-                stream.__exit__(None, None, None)
-            self._say("[cyan]DEBUG: Stream Closed[/cyan]")
+            stream_ctx.__exit__(None, None, None)
+            self._say("[cyan]DEBUG: Stream released[/cyan]")
 
 
     def _write_wav_to_buffer(self, audio_data, sample_rate, channels=1):
@@ -1088,15 +1182,12 @@ class Voice:
         current_pitch_semitones = 0
         all_audio_data = []
 
-        # Pass a lambda to check interruption status
-        check_interrupt = lambda: self._interrupted
-        
         # When RVC is enabled, we need to collect all audio first, convert it, then play
         # So we disable streaming during synthesis and play after conversion
         rvc_enabled = self.rvc_converter is not None
         stream_during_synthesis = speak_flag and not rvc_enabled
 
-        with (_open_stream(sample_rate, channels, check_interrupt) if stream_during_synthesis else nullcontext()) as st:
+        with (self._speaking_stream(sample_rate, channels) if stream_during_synthesis else nullcontext()) as st:
             progress_context = Progress(console=self.console) if not self.headless else nullcontext()
             with progress_context as progress:
                 task = progress.add_task("[cyan]Synthesizing...", total=len(parts)) if not self.headless else None
@@ -1154,7 +1245,7 @@ class Voice:
         # Play audio after RVC conversion (if RVC was enabled and speak is on)
         if rvc_enabled and speak_flag and len(final_audio) > 0 and not self._interrupted:
             self._say("[cyan]Playing converted audio...[/cyan]")
-            with _open_stream(sample_rate, channels, check_interrupt) as st:
+            with self._speaking_stream(sample_rate, channels) as st:
                 if st:
                     st.write(final_audio)
 

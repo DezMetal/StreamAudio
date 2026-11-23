@@ -36,3 +36,26 @@ numbers are module level.
 
 Not committed. Landing it in Aether and DNetAva needs a push here, then a
 pull and a submodule pointer bump in each consumer.
+
+## 2026-11-22 · claude
+
+The output device is no longer opened and closed per call. `say_fast` paid a
+device setup at the front of every utterance, so a reply arriving as several
+fragments paid it per fragment, exactly where it is heard. There is now one
+stream on `Voice`, held while she is talking and released 20s after she stops
+by a timer the next utterance cancels -- not a loop watching for silence,
+because the daemon stays hot for hours and must not hold the device through
+them. `_open_stream` is gone; `say`, its RVC playback and `say_fast` all take
+the same stream, and its dead `check_interrupted_callback` went with it.
+
+Consequence handled: `stop()` now aborts the stream. With the device held open
+a drain would have played out the rest of the sentence she was told to
+abandon, and the next utterance would have queued behind it.
+
+Measured while reading piper: `PiperVoice.synthesize` yields ONE CHUNK PER
+SENTENCE. The accumulate target is only tested after a whole chunk arrives, so
+no value of it can make the leading audio shorter than the first sentence --
+the "short first chunk" idea cannot do what its comment claimed, here or in
+SpeechQueue. What the small leading target really does is stop a short opening
+sentence from waiting for the second and third to be synthesized before
+anything is converted. The comments now say that instead.
