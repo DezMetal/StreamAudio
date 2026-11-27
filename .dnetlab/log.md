@@ -72,3 +72,15 @@ Mission update: SpeechQueue references in main.pyw identified as dead code and r
 ## 2026-11-24 11:48 · jobs
 
 Done (approved in the Workspace by operator): next: speech: an odd delay after the first utterance and at punctuation, heard through Aether (handed from the Aether card, 2026-11-22). Find the cause in main.
+
+## 2026-11-25 11:11 · steward
+
+Nothing was staged because SpeechQueue is used by DLLama, making the deletion request invalid.
+The worker identified that SpeechQueue is a live consumer for DLLama's text-to-speech path.
+No work was done to preserve system stability.
+Remaining: The operator must confirm whether to override this dependency or maintain the queue.
+This report is logged on the StreamAudio card.
+
+## 2026-11-25 11:22 · claude (operator's go-ahead 2026-11-25)
+
+Declared launch `compile`: `python3 -m py_compile main.py rvc_inference.py`
