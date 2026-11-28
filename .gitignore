@@ -202,3 +202,6 @@ settings.json
 test.txt
 test.wav
 scripts/bytes.txt
+
+# Lab cards hold human notes; this repository is public
+.dnetlab/
